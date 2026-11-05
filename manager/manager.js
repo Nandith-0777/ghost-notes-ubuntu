@@ -6,6 +6,8 @@ const {
   registerShortcuts,
   getShortcuts,
   applyOverrides,
+  validateShortcut,
+  setShortcutCapture,
 } = require("./shortcuts");
 const {
   sanitizeWorkspaceName,
@@ -27,6 +29,13 @@ function sanitizeTitle(input) {
 
 function createManagerModule({ store, actions, theme }) {
   let win = null;
+  let shortcutRecording = false;
+  function setRecording(active) {
+    if (shortcutRecording === active) return;
+    shortcutRecording = active;
+    if (win) setShortcutCapture(win, active);
+    actions.onShortcutRecording?.(active);
+  }
 
   function snapshot() {
     return {
@@ -57,11 +66,11 @@ function createManagerModule({ store, actions, theme }) {
       return;
     }
     win = new BrowserWindow({
-      width: 840,
-      height: 640,
+      width: 960,
+      height: 700,
       minWidth: 560,
       minHeight: 420,
-      title: "Notes Manager",
+      title: "Ghost Notes",
       show: false,
       webPreferences: {
         preload: path.join(__dirname, "manager-preload.js"),
@@ -83,7 +92,14 @@ function createManagerModule({ store, actions, theme }) {
         win.webContents.send("manager:showShortcuts"),
       );
     }
+    win.webContents.on("render-process-gone", () => setRecording(false));
+    win.on("blur", () => {
+      if (!shortcutRecording) return;
+      setRecording(false);
+      win.webContents.send("manager:recordingCancelled");
+    });
     win.on("closed", () => {
+      setRecording(false);
       win = null;
     });
   }
@@ -94,37 +110,55 @@ function createManagerModule({ store, actions, theme }) {
     getShortcuts(store.getShortcutOverrides()),
   );
 
-  ipcMain.handle("manager:setShortcut", (e, payload) => {
+  ipcMain.handle("manager:recordShortcut", (event, active) => {
+    if (!trustedManager(event) || typeof active !== "boolean") return false;
+    setRecording(active);
+    return true;
+  });
+
+  function changeShortcut(event, id, value, reset = false) {
+    if (!trustedManager(event))
+      return { error: "Shortcut changes must come from Notes Manager." };
+    const previous = { ...store.getShortcutOverrides() };
+    const shortcut = getShortcuts(previous).find((s) => s.id === id);
+    if (!shortcut) return { error: "Unknown shortcut." };
+    const candidate = validateShortcut(
+      id,
+      reset ? shortcut.defaultAccelerator : value,
+      previous,
+    );
+    if (candidate.error) return candidate;
+    setRecording(false);
+    if (reset) store.clearShortcutOverride(id);
+    else store.setShortcutOverride(id, candidate.accelerator);
+    applyOverrides(store.getShortcutOverrides());
+    actions.onShortcutsUpdated?.(store.getShortcutOverrides());
+    const updated = getShortcuts(store.getShortcutOverrides());
+    if (updated.find((s) => s.id === id)?.registration === "unavailable") {
+      if (Object.hasOwn(previous, id))
+        store.setShortcutOverride(id, previous[id]);
+      else store.clearShortcutOverride(id);
+      applyOverrides(previous);
+      actions.onShortcutsUpdated?.(previous);
+      return {
+        error:
+          "That combination is already in use or unavailable on this desktop. Your previous shortcut is unchanged.",
+      };
+    }
+    return updated;
+  }
+  ipcMain.handle("manager:setShortcut", (event, payload) => {
     if (
       !payload ||
       typeof payload.id !== "string" ||
       typeof payload.accelerator !== "string"
-    ) {
-      return getShortcuts(store.getShortcutOverrides());
-    }
-    const cleanAccelerator = payload.accelerator.trim();
-    if (!cleanAccelerator) return getShortcuts(store.getShortcutOverrides());
-
-    store.setShortcutOverride(payload.id, cleanAccelerator);
-    const overrides = store.getShortcutOverrides();
-    applyOverrides(overrides);
-    if (actions.onShortcutsUpdated) {
-      actions.onShortcutsUpdated(overrides);
-    }
-    return getShortcuts(overrides);
+    )
+      return { error: "Enter a valid shortcut." };
+    return changeShortcut(event, payload.id, payload.accelerator);
   });
-
-  ipcMain.handle("manager:resetShortcut", (e, id) => {
-    if (typeof id !== "string")
-      return getShortcuts(store.getShortcutOverrides());
-    store.clearShortcutOverride(id);
-    const overrides = store.getShortcutOverrides();
-    applyOverrides(overrides);
-    if (actions.onShortcutsUpdated) {
-      actions.onShortcutsUpdated(overrides);
-    }
-    return getShortcuts(overrides);
-  });
+  ipcMain.handle("manager:resetShortcut", (event, id) =>
+    changeShortcut(event, id, null, true),
+  );
 
   ipcMain.on("manager:setWorkspace", (e, id) => {
     if (typeof id !== "string") return;
@@ -178,44 +212,34 @@ function createManagerModule({ store, actions, theme }) {
     if (actions.setAccent) actions.setAccent(id);
   });
 
-  ipcMain.on("manager:deleteWorkspace", async (e, id) => {
-    if (typeof id !== "string") return;
+  function trustedManager(event) {
+    return win && !win.isDestroyed() && event.sender === win.webContents;
+  }
+
+  ipcMain.handle("manager:workspaceDeletion", (event, id) => {
+    if (!trustedManager(event) || typeof id !== "string") return null;
     const workspace = store.getWorkspace(id);
-    if (!workspace) return;
-    if (store.workspaces().length <= 1) {
-      await dialog.showMessageBox(
-        BrowserWindow.fromWebContents(e.sender) || undefined,
-        {
-          type: "info",
-          buttons: ["OK"],
-          title: "Cannot delete workspace",
-          message: "This is your only workspace.",
-          detail:
-            "Create another workspace first. Ghost Notes always keeps at least one.",
-        },
-      );
-      return;
-    }
-
-    const noteCount = store.notesInWorkspace(id).length;
-    const plural = noteCount === 1 ? "" : "s";
     const fallback = store.fallbackWorkspaceFor(id);
-    const detail =
-      noteCount === 0
-        ? "This workspace is empty. No notes will be affected."
-        : `Its ${noteCount} note${plural} will be moved to "${fallback.name}", not deleted.`;
+    if (!workspace || !fallback || store.workspaces().length <= 1) return null;
+    return {
+      id,
+      name: workspace.name,
+      noteCount: store.notesInWorkspace(id).length,
+      destination: fallback.name,
+    };
+  });
 
-    const targetWindow = BrowserWindow.fromWebContents(e.sender) || undefined;
-    const { response } = await dialog.showMessageBox(targetWindow, {
-      type: "warning",
-      buttons: ["Cancel", "Delete workspace"],
-      defaultId: 0,
-      cancelId: 0,
-      title: "Delete workspace",
-      message: `Delete the workspace "${workspace.name}"?`,
-      detail,
-    });
-    if (response === 1) actions.removeWorkspace(id);
+  ipcMain.on("manager:deleteWorkspace", (event, payload) => {
+    if (
+      !trustedManager(event) ||
+      !payload ||
+      typeof payload.id !== "string" ||
+      payload.confirmed !== true
+    )
+      return;
+    if (!store.getWorkspace(payload.id) || store.workspaces().length <= 1)
+      return;
+    actions.removeWorkspace(payload.id);
   });
 
   ipcMain.on("manager:new", () => actions.createNote());
@@ -235,22 +259,17 @@ function createManagerModule({ store, actions, theme }) {
     actions.renameNote(payload.id, sanitizeTitle(payload.title));
   });
 
-  ipcMain.on("manager:delete", async (e, id) => {
-    if (typeof id !== "string") return;
-    const record = store.get(id);
-    if (!record) return;
-    const targetWindow = BrowserWindow.fromWebContents(e.sender) || undefined;
-    const { response } = await dialog.showMessageBox(targetWindow, {
-      type: "warning",
-      buttons: ["Cancel", "Delete"],
-      defaultId: 0,
-      cancelId: 0,
-      title: "Delete note",
-      message: "Delete this note permanently?",
-      detail:
-        "This cannot be undone. The note will be removed from this device.",
-    });
-    if (response === 1) actions.deleteNoteRecord(id);
+  ipcMain.on("manager:delete", (e, payload) => {
+    if (
+      !win ||
+      win.isDestroyed() ||
+      e.sender !== win.webContents ||
+      !payload ||
+      typeof payload.id !== "string" ||
+      payload.confirmed !== true
+    )
+      return;
+    if (store.get(payload.id)) actions.deleteNoteRecord(payload.id);
   });
 
   function managerWindow() {

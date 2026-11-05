@@ -1,0 +1,26 @@
+{
+  "testedAt": "2026-11-05",
+  "input": "wlr virtual-pointer compositor input",
+  "checks": [
+    "body click reaches public background",
+    "hover toolbar restores input",
+    "toolbar click disables ghost mode"
+  ],
+  "configurations": [
+    {
+      "scale": 1,
+      "forceZeroScaling": false
+    },
+    {
+      "scale": 1.25,
+      "forceZeroScaling": false,
+      "fullscreen": true
+    },
+    {
+      "scale": 1.25,
+      "forceZeroScaling": true,
+      "cleanLaunch": true
+    }
+  ],
+  "result": "passed"
+}

@@ -1,0 +1,12 @@
+{
+  "consumer": "Electron 43.6.0 Chromium desktopCapturer + MediaRecorder",
+  "transport": "desktop portal / PipeWire / shared memory",
+  "force_shm": true,
+  "output": "isolated GN-TEST headless output only",
+  "codec": "vp8",
+  "width": 1280,
+  "height": 720,
+  "durationSeconds": 2.405777,
+  "result": "recorded and decoded frame visually verified, no note or black rectangle",
+  "dmaBufResult": "negotiation failed for GPU Screen Recorder and Chromium; not claimed verified"
+}

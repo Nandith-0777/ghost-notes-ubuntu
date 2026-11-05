@@ -8,6 +8,7 @@ try {
     home: os.homedir(),
     electronPath: require("electron"),
     hyprland: process.argv.includes("--hyprland"),
+    capturePlugin: process.argv.includes("--capture-plugin"),
   });
   console.log(`Launcher: ${result.launcher}\nDesktop entry: ${result.desktop}`);
   if (result.hyprland)

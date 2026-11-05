@@ -1,0 +1,29 @@
+{
+  "builtAt": "2026-11-05T08:39:20.272916+00:00",
+  "version": "1.2.2",
+  "electron": "43.6.0",
+  "hyprlandHash": "efb50993780079460b0cbed1363e2166a2de1d9f",
+  "artifacts": [
+    {
+      "file": "dist/Ghost Notes-1.2.2.AppImage",
+      "bytes": 129257205,
+      "sha256": "65822f47c0910505238399d5e49402fd1d190e7225889bc45f622b3b6bfbbbbd"
+    },
+    {
+      "file": "dist/invisible-notes_1.2.2_amd64.deb",
+      "bytes": 88554960,
+      "sha256": "c8600c27001ab666bfed0b275146e17e4345d6b83e77e24155584c077cc24f52"
+    },
+    {
+      "file": "dist/invisible-notes-1.2.2.tar.gz",
+      "bytes": 123542566,
+      "sha256": "9736f5afc2f6831902ef0fe64b08a908142f358a21b2dbfe7ed4611418d69e38"
+    },
+    {
+      "file": "dist/hyprland/ghost-notes-capture.so",
+      "bytes": 4069560,
+      "sha256": "a0dcc930852b82709dc4a0ec805a479ea92e82ccd9c55c1f8b042a5f9a11ba85"
+    }
+  ],
+  "note": "Linux artifacts rebuilt from the verified unpacked app; companion is installed separately and tied to this compositor build. Build-only libcrypt compatibility library was extracted under /tmp; no system library was installed."
+}

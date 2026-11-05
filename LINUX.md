@@ -50,6 +50,28 @@ check `configerrors`. Configuration backups are retained.
 
 ## Capture protection: important limits
 
+### True omission on the supported Hyprland build
+
+The optional [capture companion](integrations/hyprland-capture/README.md) now
+provides a separate capture scene that omits protected notes and shows the
+content behind them, rather than painting a black rectangle. It also supplies
+fullscreen-aware pinning. Build and install it on Hyprland v0.56.2:
+
+```sh
+npm run build:capture-plugin
+npm run setup:linux -- --hyprland --capture-plugin
+hyprctl reload
+hyprctl configerrors
+hyprctl ghostnotes:status -j
+```
+
+See [the November validation](validation/linux-parity-20261105/README.md) for
+measured coverage. This changes supported compositor capture paths; direct
+GPU/KMS and X11 capture still bypass protection. Other desktops need their own
+implementation. Rebuild the companion after a compositor update.
+
+### Without the companion
+
 Electron's `setContentProtection` is a macOS/Windows API. Calling it on Linux is
 not a portable privacy mechanism.
 
@@ -68,9 +90,11 @@ limitation rather than claiming Linux notes are universally invisible.
 
 App shortcuts use the same Ctrl-based defaults as Windows. Linux has a stable
 installed desktop identity for portal registration. On Hyprland Lua sessions,
-the global new-note shortcut is registered with the compositor and invokes the
-single-instance `--new-note` command, so recovery does not depend on XWayland
-keyboard focus. Existing conflicting compositor bindings are not overwritten.
+all four global actions are registered with the compositor and invoke the
+single-instance commands `--new-note`, `--manager`, `--toggle-notes`, and
+`--toggle-ghost`, so recovery does not depend on XWayland keyboard focus.
+Ghost Notes must remain running in the tray. Custom shortcuts require Ctrl,
+Alt, Shift, or Super plus another key; edit or record them in Settings → Shortcuts. Existing conflicting compositor bindings are not overwritten.
 Changing a shortcut releases the previous registration.
 
 Other desktops use Electron's globalShortcut integration. Native Wayland
@@ -87,6 +111,10 @@ Ghost Notes watches Hyprland configuration reloads and reconnects its runtime
 shortcut automatically. Registrations belong to the launching app/profile, so
 an isolated test profile cannot claim or remove another profile's shortcut.
 The persisted window rules continue to apply.
+
+Linux ghost-mode toolbar recovery uses a desktop-pointer watcher because Electron
+does not forward ignored mouse motion on Linux. On Hyprland it reads compositor
+pointer coordinates, avoiding stale XWayland coordinates while input is ignored.
 
 ## Storage
 

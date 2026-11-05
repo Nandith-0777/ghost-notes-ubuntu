@@ -4,13 +4,17 @@ contextBridge.exposeInMainWorld("manager", {
   list: () => ipcRenderer.invoke("manager:list"),
   open: (id) => ipcRenderer.send("manager:open", id),
   hide: (id) => ipcRenderer.send("manager:hide", id),
-  delete: (id) => ipcRenderer.send("manager:delete", id),
+  delete: (id) => ipcRenderer.send("manager:delete", { id, confirmed: true }),
   rename: (id, title) => ipcRenderer.send("manager:rename", { id, title }),
   newNote: () => ipcRenderer.send("manager:new"),
   onChanged: (cb) =>
     ipcRenderer.on("manager:notesChanged", (e, snapshot) => cb(snapshot)),
   version: () => ipcRenderer.invoke("manager:version"),
   shortcuts: () => ipcRenderer.invoke("manager:shortcuts"),
+  recordShortcut: (active) =>
+    ipcRenderer.invoke("manager:recordShortcut", active),
+  onRecordingCancelled: (cb) =>
+    ipcRenderer.on("manager:recordingCancelled", () => cb()),
   setShortcut: (id, accelerator) =>
     ipcRenderer.invoke("manager:setShortcut", { id, accelerator }),
   resetShortcut: (id) => ipcRenderer.invoke("manager:resetShortcut", id),
@@ -20,7 +24,10 @@ contextBridge.exposeInMainWorld("manager", {
   createWorkspace: (name) => ipcRenderer.send("manager:createWorkspace", name),
   renameWorkspace: (id, name) =>
     ipcRenderer.send("manager:renameWorkspace", { id, name }),
-  deleteWorkspace: (id) => ipcRenderer.send("manager:deleteWorkspace", id),
+  workspaceDeletion: (id) =>
+    ipcRenderer.invoke("manager:workspaceDeletion", id),
+  deleteWorkspace: (id) =>
+    ipcRenderer.send("manager:deleteWorkspace", { id, confirmed: true }),
   moveNote: (id, workspaceId) =>
     ipcRenderer.send("manager:moveNote", { id, workspaceId }),
   exportAll: () => ipcRenderer.invoke("manager:export"),

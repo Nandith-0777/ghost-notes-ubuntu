@@ -1,0 +1,14 @@
+{
+  "passed": 9,
+  "checks": [
+    "Recording an existing app shortcut does not execute it",
+    "Recorded Alt+F8 without forced modifiers",
+    "Custom app shortcut executes with its exact modifiers",
+    "Duplicate assignment is rejected",
+    "System binding conflict preserves the previous shortcut",
+    "Global Space combination is accepted",
+    "Global Space shortcut opens the hidden manager",
+    "Manually entered arrow combination saves",
+    "Reset restores the original shortcut"
+  ]
+}

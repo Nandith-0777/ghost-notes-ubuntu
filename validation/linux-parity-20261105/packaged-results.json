@@ -1,0 +1,20 @@
+{
+  "directLaunch": true,
+  "earlyBackendRelaunch": true,
+  "persistedTestMarker": true,
+  "noteCount": 2,
+  "pointerValidation": "passed",
+  "runtime": {
+    "platform": "linux",
+    "backend": "x11",
+    "capture": {
+      "mode": "compositor-omit",
+      "message": "Protected notes are omitted from compositor-managed screen captures by the Ghost Notes Hyprland plugin. Direct GPU/KMS and X11 capture bypass this protection. Other desktops require their own integration."
+    },
+    "storage": {
+      "encrypted": true,
+      "backend": "gnome_libsecret"
+    },
+    "globalShortcut": "registered-via-compositor"
+  }
+}

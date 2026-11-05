@@ -43,6 +43,10 @@ function setup(overrides = {}) {
       assert.equal(controller.isChanging(win) || record.collapsed, true);
       bounds = next;
     },
+    setSize: (width, height) => {
+      assert.equal(controller.isChanging(win), true);
+      bounds = { ...bounds, width, height };
+    },
     setMinimumSize: (...size) => {
       win.minimum = size;
     },
@@ -63,6 +67,8 @@ function setup(overrides = {}) {
     },
     noteWindows: new Map([[record.id, win]]),
     screen: { ...screen, getCursorScreenPoint: () => cursor },
+    dragPointer:
+      overrides.dragPointer || ((_win, point) => ({ ...point, scale: null })),
     onChanged: () => {
       changes++;
     },
@@ -179,4 +185,188 @@ test("repeated collapse requests do not shrink the saved full size", () => {
   assert.equal(h.record.width, 360);
   assert.equal(h.record.height, 220);
   assert.equal(h.changes(), 1);
+});
+
+test("toolbar dragging uses event coordinates even when the desktop cursor is stale", async () => {
+  const h = setup();
+  const drag = (phase, x, y, event = h.event) =>
+    h.controller.dragNote(event, { id: h.record.id, phase, x, y });
+  await drag("start", 130, 115);
+  await drag("move", 250, 215);
+  assert.deepEqual(h.win.getBounds(), {
+    x: 220,
+    y: 200,
+    width: 360,
+    height: 220,
+  });
+  assert.equal(h.record.x, 220);
+  assert.equal(h.record.text, "Private content");
+  await drag("end", 250, 215);
+  await drag("move", 300, 300);
+  assert.equal(h.record.x, 220);
+});
+
+test("toolbar drag rejects invalid coordinates and another window's sender", async () => {
+  const h = setup();
+  const payload = { id: h.record.id, phase: "start", x: 120, y: 120 };
+  await h.controller.dragNote({ sender: {} }, payload);
+  await h.controller.dragNote(h.event, { ...payload, phase: "move", x: 300 });
+  assert.equal(h.record.x, 100);
+  for (const x of [NaN, Infinity, "120", 100001]) {
+    await h.controller.dragNote(h.event, { ...payload, x });
+    await h.controller.dragNote(h.event, { ...payload, phase: "move", x: 300 });
+    assert.equal(h.record.x, 100);
+  }
+});
+
+test("toolbar dragging ignores small hand movements and stays engaged after starting", async () => {
+  const h = setup();
+  const drag = (phase, x, y) =>
+    h.controller.dragNote(h.event, { id: h.record.id, phase, x, y });
+  await drag("start", 130, 115);
+  await drag("move", 135, 119);
+  assert.equal(h.record.x, 100);
+  assert.equal(h.record.y, 100);
+  await drag("move", 140, 115);
+  assert.equal(h.record.x, 110);
+  await drag("move", 132, 115);
+  assert.equal(h.record.x, 102);
+  await drag("end", 130, 115);
+  assert.equal(h.record.x, 100);
+});
+
+test("compositor coordinates prevent window movement from feeding back into the drag", async () => {
+  let cursor = { x: 500, y: 300 };
+  const h = setup({
+    dragPointer: async () => ({ ...cursor, scale: { x: 1.25, y: 1.25 } }),
+  });
+  const drag = (phase, x, y) =>
+    h.controller.dragNote(h.event, { id: h.record.id, phase, x, y });
+  await drag("start", 500, 300);
+  cursor = { x: 600, y: 350 };
+  await drag("move", 3000, -2000);
+  assert.deepEqual(h.win.getBounds(), {
+    x: 200,
+    y: 150,
+    width: 360,
+    height: 220,
+  });
+  await drag("move", -9000, 9000);
+  assert.equal(h.record.x, 200);
+  assert.equal(h.record.y, 150);
+  await drag("end", 9000, -9000);
+  assert.equal(h.record.x, 200);
+  assert.equal(h.record.y, 150);
+});
+
+test("asynchronous drag start, movement, and release are processed in order", async () => {
+  let reads = 0;
+  const h = setup({
+    dragPointer: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return { x: 200 + reads++ * 20, y: 200, scale: { x: 1, y: 1 } };
+    },
+  });
+  const drag = (phase) =>
+    h.controller.dragNote(h.event, { id: h.record.id, phase, x: 200, y: 200 });
+  await Promise.all([drag("start"), drag("move"), drag("end"), drag("move")]);
+  assert.equal(h.record.x, 140);
+  assert.equal(reads, 3);
+});
+
+test("resize handle grows and shrinks the note while preserving its position and content", async () => {
+  const h = setup();
+  const resize = (phase, x, y) =>
+    h.controller.resizeNote(h.event, { id: h.record.id, phase, x, y });
+  await resize("start", 400, 300);
+  await resize("move", 520, 360);
+  await resize("end", 520, 360);
+  assert.deepEqual(h.win.getBounds(), {
+    x: 100,
+    y: 100,
+    width: 480,
+    height: 280,
+  });
+  assert.equal(h.record.width, 480);
+  assert.equal(h.record.height, 280);
+  assert.equal(h.record.text, "Private content");
+  await resize("start", 520, 360);
+  await resize("end", 0, 0);
+  assert.deepEqual(h.win.getBounds(), {
+    x: 100,
+    y: 100,
+    width: 280,
+    height: 120,
+  });
+  assert.equal(h.record.width, 280);
+});
+
+test("resize rejects other senders, malformed points, and collapsed notes", async () => {
+  const h = setup();
+  const payload = { id: h.record.id, phase: "start", x: 400, y: 300 };
+  await h.controller.resizeNote({ sender: {} }, payload);
+  await h.controller.resizeNote(h.event, { ...payload, phase: "move", x: 800 });
+  await h.controller.resizeNote(h.event, { ...payload, x: NaN });
+  assert.equal(h.record.width, 360);
+  h.change(true);
+  await h.controller.resizeNote(h.event, payload);
+  await h.controller.resizeNote(h.event, { ...payload, phase: "end", x: 800 });
+  assert.equal(h.win.getBounds().width, 48);
+  assert.equal(h.record.width, 360);
+});
+
+test("resize skips duplicate geometry and persists only after release", async () => {
+  const h = setup();
+  let sizes = 0;
+  const setSize = h.win.setSize;
+  h.win.setSize = (...args) => {
+    sizes++;
+    setSize(...args);
+  };
+  const resize = (phase, x) =>
+    h.controller.resizeNote(h.event, { id: h.record.id, phase, x, y: 300 });
+  await resize("start", 400);
+  assert.equal(h.controller.isChanging(h.win), true);
+  await resize("move", 450);
+  await resize("move", 450);
+  assert.equal(sizes, 1);
+  assert.equal(h.record.width, 360);
+  await resize("end", 450);
+  assert.equal(sizes, 1);
+  assert.equal(h.record.width, 410);
+  assert.equal(h.controller.isChanging(h.win), false);
+});
+
+test("a burst of resize events keeps the latest move without a backlog", async () => {
+  const h = setup();
+  const resize = (phase, x) =>
+    h.controller.resizeNote(h.event, { id: h.record.id, phase, x, y: 300 });
+  await resize("start", 400);
+  let sizes = 0;
+  const setSize = h.win.setSize;
+  h.win.setSize = (...args) => {
+    sizes++;
+    setSize(...args);
+  };
+  await Promise.all(
+    Array.from({ length: 100 }, (_, i) => resize("move", 401 + i)),
+  );
+  assert.equal(sizes, 1);
+  assert.equal(h.win.getBounds().width, 460);
+  await resize("end", 500);
+  assert.equal(h.record.width, 460);
+});
+
+test("resize release preserves the last size if the compositor sample fails", async () => {
+  let sample = { x: 400, y: 300, scale: { x: 1, y: 1 } };
+  const h = setup({ dragPointer: async () => sample });
+  const resize = (phase) =>
+    h.controller.resizeNote(h.event, { id: h.record.id, phase, x: 0, y: 0 });
+  await resize("start");
+  sample = { ...sample, x: 460 };
+  await resize("move");
+  sample = null;
+  await resize("end");
+  assert.equal(h.record.width, 420);
+  assert.equal(h.controller.isChanging(h.win), false);
 });

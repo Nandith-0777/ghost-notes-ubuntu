@@ -1,5 +1,7 @@
 // Shortcuts that apply while a Ghost Notes window is focused.
 const platform = require("../platform");
+const keys = require("./key-combo");
+const capturing = new WeakSet();
 
 // Shared shortcut list for matching, tray accelerators, and the in-app legend.
 const SHORTCUTS = [
@@ -39,7 +41,31 @@ const SHORTCUTS = [
     accelerator: "CommandOrControl+Alt+Shift+N",
     label: "New note from anywhere",
     description:
-      "The only shortcut that works while another app has focus, so a new note is always reachable.",
+      "Create a note while another app has focus. Ghost Notes must be running in the tray.",
+  },
+  {
+    id: "openManagerAnywhere",
+    scope: "global",
+    action: "openManager",
+    accelerator: "CommandOrControl+Alt+Shift+M",
+    label: "Notes Manager from anywhere",
+    description: "Open your notes while another app has focus.",
+  },
+  {
+    id: "toggleHideAllAnywhere",
+    scope: "global",
+    action: "toggleHideAll",
+    accelerator: "CommandOrControl+Alt+Shift+H",
+    label: "Hide / show notes from anywhere",
+    description: "Show or hide notes without switching apps.",
+  },
+  {
+    id: "toggleGhostAllAnywhere",
+    scope: "global",
+    action: "toggleGhostAll",
+    accelerator: "CommandOrControl+Alt+Shift+G",
+    label: "Click-through from anywhere",
+    description: "Toggle click-through while another app has focus.",
   },
 ];
 
@@ -49,6 +75,7 @@ const GLOBAL_SHORTCUT = SHORTCUTS.find(
 
 const FALLBACK_BINDING = GLOBAL_SHORTCUT.accelerator;
 
+const globalResults = new Map();
 let activeOverrides = {};
 let registeredFallbackBinding = null;
 
@@ -73,25 +100,12 @@ let BINDINGS = Object.fromEntries(
     .map((s) => [s.id, s.accelerator]),
 );
 
-function keyOf(accelerator) {
-  const parts = accelerator.split("+");
-  return parts[parts.length - 1];
-}
-
-let ACTION_BY_KEY = {};
-let ACTION_BY_CODE = {};
-
 function buildLookupTables(overrides = activeOverrides) {
-  const appShortcuts = resolveShortcuts(overrides).filter(
-    (s) => s.scope === "app",
+  BINDINGS = Object.fromEntries(
+    resolveShortcuts(overrides)
+      .filter((s) => s.scope === "app")
+      .map((s) => [s.id, s.accelerator]),
   );
-  ACTION_BY_KEY = Object.fromEntries(
-    appShortcuts.map((s) => [keyOf(s.accelerator).toLowerCase(), s.id]),
-  );
-  ACTION_BY_CODE = Object.fromEntries(
-    appShortcuts.map((s) => [`Key${keyOf(s.accelerator).toUpperCase()}`, s.id]),
-  );
-  BINDINGS = Object.fromEntries(appShortcuts.map((s) => [s.id, s.accelerator]));
 }
 
 buildLookupTables();
@@ -104,20 +118,32 @@ function applyOverrides(overrides = {}) {
 function getShortcuts(overrides = activeOverrides) {
   return resolveShortcuts(overrides).map((shortcut) => ({
     ...shortcut,
+    registration:
+      shortcut.scope === "global"
+        ? globalResults.has(shortcut.id)
+          ? globalResults.get(shortcut.id)
+            ? "registered"
+            : "unavailable"
+          : "not-registered"
+        : null,
     display: platform.formatAccelerator(shortcut.accelerator),
   }));
 }
 
 function shortcutNameForInput(input) {
   if (!input || input.type !== "keyDown" || input.isAutoRepeat) return null;
-  if (!platform.isCommandOrControlPressed(input) || !input.shift || input.alt)
-    return null;
-  if (input.code) return ACTION_BY_CODE[input.code] || null;
-  return ACTION_BY_KEY[String(input.key || "").toLowerCase()] || null;
+  return (
+    resolveShortcuts().find(
+      (shortcut) =>
+        shortcut.scope === "app" &&
+        keys.matches(shortcut.accelerator, input, platform.isMac),
+    )?.id || null
+  );
 }
 
 function registerShortcuts(win, actions) {
   win.webContents.on("before-input-event", (event, input) => {
+    if (capturing.has(win)) return;
     const name = shortcutNameForInput(input);
     const handler = name && actions[name];
     if (!handler) return;
@@ -131,14 +157,18 @@ function registerFallbackShortcut(globalShortcut, handler, customBinding) {
     customBinding || activeOverrides[GLOBAL_SHORTCUT.id] || FALLBACK_BINDING;
   if (registeredFallbackBinding && registeredFallbackBinding !== binding) {
     globalShortcut.unregister(registeredFallbackBinding);
-    platform.unregisterCompositorShortcut();
+    platform.unregisterCompositorShortcut("newNote");
     registeredFallbackBinding = null;
   }
   const compositorRegistered = platform.registerCompositorShortcut(binding);
-  const registered =
-    compositorRegistered ||
-    (!platform.hasShortcutConflict() &&
-      globalShortcut.register(binding, handler));
+  let registered = compositorRegistered;
+  if (!registered && !platform.hasShortcutConflict()) {
+    try {
+      registered = globalShortcut.register(binding, handler);
+    } catch {
+      registered = false;
+    }
+  }
   if (registered) registeredFallbackBinding = binding;
   platform.setShortcutStatus(
     compositorRegistered
@@ -161,11 +191,81 @@ function unregisterFallbackShortcut(globalShortcut, customBinding) {
   const binding =
     customBinding || registeredFallbackBinding || FALLBACK_BINDING;
   globalShortcut.unregister(binding);
-  platform.unregisterCompositorShortcut();
+  platform.unregisterCompositorShortcut("newNote");
   registeredFallbackBinding = null;
 }
 
+const extraGlobalBindings = new Map();
+function registerGlobalShortcuts(globalShortcut, actions) {
+  unregisterGlobalShortcuts(globalShortcut);
+  globalResults.clear();
+  globalResults.set(
+    "newNoteAnywhere",
+    registerFallbackShortcut(globalShortcut, actions.newNote),
+  );
+  for (const shortcut of getShortcuts().filter(
+    (s) => s.scope === "global" && s.action,
+  )) {
+    const compositor = platform.registerCompositorShortcut(
+      shortcut.accelerator,
+      shortcut.action,
+    );
+    let registered = compositor;
+    if (!compositor && !platform.hasShortcutConflict()) {
+      try {
+        registered = globalShortcut.register(
+          shortcut.accelerator,
+          actions[shortcut.action],
+        );
+      } catch {
+        registered = false;
+      }
+    }
+    globalResults.set(shortcut.id, registered);
+    if (registered) extraGlobalBindings.set(shortcut.id, shortcut);
+  }
+  if ([...globalResults.values()].some((value) => !value))
+    platform.setShortcutStatus("conflict-or-unavailable");
+  return Object.fromEntries(globalResults);
+}
+function unregisterGlobalShortcuts(globalShortcut) {
+  unregisterFallbackShortcut(globalShortcut);
+  for (const shortcut of extraGlobalBindings.values()) {
+    globalShortcut.unregister(shortcut.accelerator);
+    platform.unregisterCompositorShortcut(shortcut.action);
+  }
+  extraGlobalBindings.clear();
+}
+
+function validateShortcut(id, value, overrides = activeOverrides) {
+  if (!SHORTCUTS.some((s) => s.id === id))
+    return { error: "Unknown shortcut." };
+  const parsed = keys.parse(value, platform.isMac);
+  if (!parsed)
+    return {
+      error:
+        "Use Ctrl, Alt, Shift, or Super plus another key. For example: Alt+F8.",
+    };
+  const duplicate = resolveShortcuts(overrides).find(
+    (s) =>
+      s.id !== id &&
+      keys.parse(s.accelerator, platform.isMac)?.accelerator ===
+        parsed.accelerator,
+  );
+  if (duplicate)
+    return {
+      error: `Already assigned to “${duplicate.label}”. Choose a different combination.`,
+    };
+  return { accelerator: parsed.accelerator };
+}
+
 module.exports = {
+  validateShortcut,
+  setShortcutCapture: (win, active) =>
+    active ? capturing.add(win) : capturing.delete(win),
+  registerGlobalShortcuts,
+  unregisterGlobalShortcuts,
+  globalShortcutResults: () => Object.fromEntries(globalResults),
   SHORTCUTS,
   registerShortcuts,
   registerFallbackShortcut,

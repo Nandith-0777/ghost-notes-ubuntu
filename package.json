@@ -13,10 +13,11 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "setup:linux": "node scripts/setup-linux.js"
+    "setup:linux": "node scripts/setup-linux.js",
+    "build:capture-plugin": "sh scripts/build-capture-plugin.sh"
   },
   "author": "Navya Bijoy",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/Nandith-0777/invisible-notes",
   "repository": {
     "type": "git",
@@ -117,5 +118,11 @@
   "desktopName": "com.invisiblenotes.app.desktop",
   "engines": {
     "node": ">=22.12.0"
-  }
+  },
+  "contributors": [
+    {
+      "name": "Nandith (Nandith-0777)",
+      "url": "https://github.com/Nandith-0777"
+    }
+  ]
 }

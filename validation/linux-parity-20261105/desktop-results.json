@@ -1,0 +1,124 @@
+{
+  "testedAt": "2026-11-05T08:11:36.210Z",
+  "profile": "/tmp/ghost-notes-nested/profile",
+  "results": [
+    {
+      "name": "runtime",
+      "result": "passed",
+      "data": {
+        "platform": "linux",
+        "backend": "x11",
+        "capture": {
+          "mode": "compositor-omit",
+          "message": "Protected notes are omitted from compositor-managed screen captures by the Ghost Notes Hyprland plugin. Direct GPU/KMS and X11 capture bypass this protection. Other desktops require their own integration."
+        },
+        "storage": {
+          "encrypted": true,
+          "backend": "gnome_libsecret"
+        },
+        "globalShortcut": "registered-via-compositor"
+      }
+    },
+    {
+      "name": "automatic floating",
+      "result": "passed",
+      "data": [
+        {
+          "floating": true,
+          "xwayland": true
+        }
+      ]
+    },
+    {
+      "name": "rich-text edit and local state",
+      "result": "passed",
+      "data": {
+        "rich": true
+      }
+    },
+    {
+      "name": "color and opacity",
+      "result": "passed",
+      "data": {
+        "color": "green",
+        "opacity": 0.65
+      }
+    },
+    {
+      "name": "font and monospace",
+      "result": "passed",
+      "data": {
+        "fontSize": 16,
+        "monospace": true
+      }
+    },
+    {
+      "name": "collapse and restore without manual floating",
+      "result": "passed",
+      "data": {
+        "width": 48,
+        "height": 48
+      }
+    },
+    {
+      "name": "image paste",
+      "result": "passed",
+      "data": {
+        "images": 1
+      }
+    },
+    {
+      "name": "pin toggle",
+      "result": "passed",
+      "data": {
+        "stateChanged": true
+      }
+    },
+    {
+      "name": "ghost toggle",
+      "result": "passed",
+      "data": {
+        "stateChanged": true,
+        "physicalRecovery": "not established by this automation"
+      }
+    },
+    {
+      "name": "new note command from another application",
+      "result": "passed",
+      "data": {
+        "created": 1
+      }
+    },
+    {
+      "name": "manager shortcut",
+      "result": "passed",
+      "data": {
+        "notes": 2
+      }
+    },
+    {
+      "name": "rename, workspace and appearance",
+      "result": "passed",
+      "data": {
+        "renamed": true,
+        "workspaceCreated": true,
+        "themeChanged": true
+      }
+    },
+    {
+      "name": "manager hide and reopen",
+      "result": "passed",
+      "data": {
+        "preserved": true
+      }
+    },
+    {
+      "name": "compositor protection property",
+      "result": "passed",
+      "data": {
+        "property": "true",
+        "coverage": "supported compositor capture paths only"
+      }
+    }
+  ]
+}

@@ -2,739 +2,439 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <style>
-      :root {
-        --tint: 255, 224, 130; /* default: yellow */
-        --opacity: 0.85;
-        --font-size: 15px;
-        --mono-font:
-          ui-monospace, "SF Mono", "Fira Code", Consolas, "Cascadia Code",
-          monospace;
-      }
-
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-      }
-
-      html,
-      body {
-        width: 100%;
-        height: 100%;
-        background: transparent;
-        overflow: hidden;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        -webkit-user-select: none;
-        user-select: none;
-      }
-
-      body:not(.ready) {
-        visibility: hidden;
-      }
-
-      body.collapsed .note {
-        display: none;
-      }
-
-      body.transitioning .note,
-      body.transitioning #bubble {
-        pointer-events: none;
-      }
-      body.transitioning .bar {
-        -webkit-app-region: no-drag;
-      }
-
-      #bubble {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 40px;
-        height: 40px;
-        translate: -50% -50%;
-        display: grid;
-        place-items: center;
-        border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.65);
-        background: rgb(var(--tint));
-        color: rgba(0, 0, 0, 0.65);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-        cursor: grab;
-        touch-action: none;
-        -webkit-app-region: no-drag;
-      }
-      #bubble[hidden] {
-        display: none;
-      }
-      #bubble:hover {
-        filter: brightness(1.08);
-      }
-      #bubble:focus-visible {
-        outline: 2px solid currentColor;
-        outline-offset: -5px;
-      }
-      #bubble.dragging {
-        cursor: grabbing;
-      }
-      #bubble svg {
-        pointer-events: none;
-      }
-      body.dark #bubble {
-        color: #fff;
-      }
-
-      .note {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        border-radius: 12px;
-        overflow: hidden;
-        background: rgba(var(--tint), var(--opacity));
-        backdrop-filter: blur(2px);
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
-      }
-
-      /* Drag handle / toolbar */
-      .bar {
-        height: 30px;
-        flex: 0 0 30px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 0 8px;
-        -webkit-app-region: drag;
-        background: rgba(0, 0, 0, 0.06);
-        opacity: 0;
-        transition: opacity 0.15s ease;
-      }
-      @media (max-width: 380px) {
-        .bar {
-          gap: 2px;
-          padding: 0 4px;
-        }
-        .bar .btn {
-          padding: 2px;
-          font-size: 13px;
-        }
-        .bar input[type="range"] {
-          width: 32px;
-          min-width: 24px;
-        }
-      }
-      .bar .btn {
-        flex-shrink: 0;
-      }
-      .note:hover .bar {
-        opacity: 1;
-      }
-
-      /* Click-through ("ghost") mode: keep the toolbar findable so you can turn it
-     back off, and hint that the body now passes clicks through. */
-      .note.ghost .bar {
-        opacity: 1;
-      }
-      .note.ghost {
-        outline: 2px dashed rgba(0, 0, 0, 0.25);
-        outline-offset: -2px;
-      }
-      .note.ghost #ghost {
-        background: rgba(0, 0, 0, 0.18);
-        color: rgba(0, 0, 0, 0.85);
-      }
-      body.dark .note.ghost {
-        outline-color: rgba(255, 255, 255, 0.35);
-      }
-      body.dark .note.ghost #ghost {
-        background: rgba(255, 255, 255, 0.22);
-        color: #fff;
-      }
-
-      /* Pinned (default) = always-on-top. Unpinned = normal window, dim the
-     pin icon so its state is obvious at a glance. */
-      #pin {
-        opacity: 0.4;
-      }
-      #pin.active {
-        opacity: 1;
-        background: rgba(0, 0, 0, 0.12);
-      }
-      body.dark #pin.active {
-        background: rgba(255, 255, 255, 0.18);
-      }
-
-      .color-control {
-        position: relative;
-        -webkit-app-region: no-drag;
-      }
-      .color-dot {
-        display: block;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: rgb(var(--tint));
-        border: 1px solid rgba(0, 0, 0, 0.2);
-      }
-
-      .color-popover {
-        position: absolute;
-        top: 26px;
-        left: 0;
-        padding: 8px;
-        border-radius: 9px;
-        background: rgba(250, 250, 252, 0.98);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-        -webkit-app-region: no-drag;
-        opacity: 0;
-        transform: translateY(-4px);
-        pointer-events: none;
-        transition:
-          opacity 0.12s ease,
-          transform 0.12s ease;
-        z-index: 20;
-      }
-      .color-popover.open {
-        opacity: 1;
-        transform: translateY(0);
-        pointer-events: auto;
-      }
-      body.dark .color-popover {
-        background: rgba(46, 48, 54, 0.98);
-      }
-
-      .swatches {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-      }
-
-      .swatch {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        cursor: pointer;
-        border: 1px solid rgba(0, 0, 0, 0.15);
-      }
-      .swatch.active {
-        box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
-      }
-
-      .spacer {
-        flex: 1;
-      }
-
-      .btn {
-        -webkit-app-region: no-drag;
-        cursor: pointer;
-        border: none;
-        background: transparent;
-        color: rgba(0, 0, 0, 0.55);
-        font-size: 15px;
-        line-height: 1;
-        padding: 2px 5px;
-        border-radius: 5px;
-      }
-      .btn:hover {
-        background: rgba(0, 0, 0, 0.12);
-        color: rgba(0, 0, 0, 0.8);
-      }
-
-      input[type="range"] {
-        -webkit-app-region: no-drag;
-        width: 58px;
-        accent-color: rgba(0, 0, 0, 0.5);
-        cursor: pointer;
-      }
-
-      .editor {
-        flex: 1;
-        width: 100%;
-        resize: none;
-        border: none;
-        outline: none;
-        background: transparent;
-        padding: 10px 12px;
-        font-size: var(--font-size);
-        line-height: 1.45;
-        color: #1c1c1c;
-        -webkit-user-select: auto;
-        user-select: auto;
-        font-family: inherit;
-        overflow-y: auto;
-        cursor: text;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .editor::-webkit-scrollbar {
-        width: 8px;
-        cursor: default;
-      }
-      .editor::-webkit-scrollbar-thumb {
-        background: rgba(0, 0, 0, 0.18);
-        border-radius: 4px;
-        cursor: default;
-      }
-      .editor::-webkit-scrollbar-thumb:hover {
-        background: rgba(0, 0, 0, 0.32);
-      }
-      body.dark .editor::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-      }
-      body.dark .editor::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.35);
-      }
-      .editor[placeholder]:empty:before {
-        content: attr(placeholder);
-        color: rgba(0, 0, 0, 0.35);
-        pointer-events: none;
-      }
-      .note.mono .editor {
-        font-family: var(--mono-font);
-      }
-
-      .editor h1 {
-        font-size: calc(var(--font-size) * 1.35);
-        margin: 0.2em 0;
-        font-weight: bold;
-      }
-      .editor h2 {
-        font-size: calc(var(--font-size) * 1.15);
-        margin: 0.2em 0;
-        font-weight: 600;
-      }
-      .editor h3 {
-        font-size: calc(var(--font-size) * 0.9);
-        margin: 0.2em 0;
-        font-weight: 600;
-        color: var(--muted);
-      }
-      .editor pre {
-        font-family: var(--mono-font);
-        font-size: calc(var(--font-size) * 0.9);
-        background: rgba(0, 0, 0, 0.05);
-        padding: 2px 4px;
-        border-radius: 4px;
-        display: inline-block;
-      }
-      .editor ul,
-      .editor ol {
-        padding-left: 1.5em;
-        margin: 0.2em 0;
-      }
-      .editor ul[data-type="checklist"] {
-        list-style: none;
-        padding-left: 0.2em;
-      }
-      .editor ul[data-type="checklist"] li {
-        position: relative;
-        padding-left: 1.45em;
-      }
-      .editor ul[data-type="checklist"] li::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0.28em;
-        width: 0.82em;
-        height: 0.82em;
-        border: 1.5px solid rgba(0, 0, 0, 0.36);
-        border-radius: 3px;
-        background: rgba(255, 255, 255, 0.18);
-      }
-      .editor ul[data-type="checklist"] li[data-checked="true"] {
-        color: rgba(0, 0, 0, 0.48);
-        text-decoration: line-through;
-      }
-      .editor ul[data-type="checklist"] li[data-checked="true"]::before {
-        content: "✓";
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-color: rgba(0, 0, 0, 0.52);
-        background: rgba(0, 0, 0, 0.14);
-        color: rgba(0, 0, 0, 0.78);
-        font-size: 0.7em;
-        font-weight: 700;
-        line-height: 1;
-        text-decoration: none;
-      }
-      .editor blockquote {
-        border-left: 3px solid rgba(0, 0, 0, 0.2);
-        padding-left: 0.8em;
-        margin: 0.2em 0;
-        color: rgba(0, 0, 0, 0.7);
-      }
-      body.dark .editor blockquote {
-        border-left-color: rgba(255, 255, 255, 0.3);
-        color: rgba(255, 255, 255, 0.7);
-      }
-      body.dark .editor ul[data-type="checklist"] li::before {
-        border-color: rgba(255, 255, 255, 0.42);
-        background: rgba(255, 255, 255, 0.08);
-      }
-      body.dark .editor ul[data-type="checklist"] li[data-checked="true"] {
-        color: rgba(255, 255, 255, 0.5);
-      }
-      body.dark
-        .editor
-        ul[data-type="checklist"]
-        li[data-checked="true"]::before {
-        border-color: rgba(255, 255, 255, 0.54);
-        background: rgba(255, 255, 255, 0.18);
-        color: #fff;
-      }
-
-      @keyframes imgin {
-        from {
-          opacity: 0;
-          transform: scale(0.985);
-        }
-      }
-
-      /* Pasted images reflow with the note: width is capped by the editor,
-         height follows, so resizing the window scales them without cropping. */
-      .editor img {
-        display: block;
-        max-width: 100%;
-        height: auto;
-        border-radius: 6px;
-        margin: 6px 0;
-        cursor: default;
-        -webkit-user-drag: none;
-        animation: imgin 0.18s ease;
-        transition: opacity 0.15s ease;
-      }
-      .editor img.selected {
-        outline: 2.5px solid rgba(64, 128, 255, 0.9);
-        outline-offset: 1.5px;
-      }
-      /* Ghost mode passes clicks through the note body. Images must not catch
-         the forwarded mouse events that drive that hand-off, so they go inert
-         and dim to signal they can be clicked through. */
-      .note.ghost .editor img {
-        pointer-events: none;
-        opacity: 0.35;
-      }
-
-      .format-control {
-        position: relative;
-        -webkit-app-region: no-drag;
-      }
-      .format-popover {
-        position: absolute;
-        top: 26px;
-        left: 50%;
-        padding: 4px;
-        border-radius: 9px;
-        background: rgba(250, 250, 252, 0.98);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-        -webkit-app-region: no-drag;
-        opacity: 0;
-        transform: translate(-50%, -4px);
-        pointer-events: none;
-        transition:
-          opacity 0.12s ease,
-          transform 0.12s ease;
-        z-index: 20;
-        display: flex;
-        flex-direction: column;
-        min-width: 140px;
-        max-height: calc(100vh - 40px);
-        overflow-y: auto;
-      }
-      .format-popover.open {
-        opacity: 1;
-        transform: translate(-50%, 0);
-        pointer-events: auto;
-      }
-      body.dark .format-popover {
-        background: rgba(46, 48, 54, 0.98);
-      }
-
-      .format-btn {
-        width: 100%;
-        text-align: left;
-        background: none;
-        border: none;
-        padding: 8px 10px;
-        font-size: 13px;
-        cursor: pointer;
-        border-radius: 6px;
-        color: var(--ink);
-        transition: background 0.15s;
-        font-family: inherit;
-        position: relative;
-        margin-bottom: 2px;
-      }
-      .format-btn:last-child {
-        margin-bottom: 0;
-      }
-      .format-btn:hover {
-        background: rgba(0, 0, 0, 0.05);
-      }
-      body.dark .format-btn:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      .format-btn.active {
-        background: rgba(0, 0, 0, 0.06);
-        color: var(--accent);
-      }
-      body.dark .format-btn.active {
-        background: rgba(255, 255, 255, 0.1);
-      }
-      .format-btn.active::after {
-        content: "✓";
-        position: absolute;
-        right: 12px;
-        font-weight: bold;
-        font-style: normal;
-      }
-
-      .format-btn.code-style {
-        font-family: var(--mono-font);
-      }
-
-      .format-divider {
-        height: 1px;
-        background: rgba(0, 0, 0, 0.1);
-        margin: 4px 0;
-        flex-shrink: 0;
-      }
-      body.dark .format-divider {
-        background: rgba(255, 255, 255, 0.1);
-      }
-
-      /* Dark theme readability */
-      body.dark .editor {
-        color: #f2f2f2;
-      }
-      body.dark .editor[placeholder]:empty:before {
-        color: rgba(255, 255, 255, 0.4);
-      }
-      body.dark .bar {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      body.dark .btn {
-        color: rgba(255, 255, 255, 0.7);
-      }
-      body.dark .btn:hover {
-        background: rgba(255, 255, 255, 0.15);
-        color: #fff;
-      }
-
-      .color-palette {
-        display: flex;
-        justify-content: center;
-        gap: 12px;
-        padding: 8px 10px;
-      }
-      .color-swatch {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        cursor: pointer;
-        transition:
-          transform 0.15s,
-          filter 0.15s;
-        background: none;
-        padding: 0;
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      body.dark .color-swatch {
-        border-color: rgba(255, 255, 255, 0.1);
-      }
-      .color-swatch:hover {
-        transform: scale(1.15);
-      }
-      .color-swatch.active {
-        filter: brightness(0.85);
-      }
-      .color-swatch.active::after {
-        content: "✓";
-        color: white;
-        font-size: 11px;
-        font-weight: bold;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-      }
-    </style>
+    <link rel="stylesheet" href="note.css" />
   </head>
   <body>
     <div class="note">
-      <div class="bar">
-        <div class="color-control">
-          <button class="btn" id="colorBtn" title="Note color">
-            <span class="color-dot" id="colorDot"></span>
+      <div class="bar" role="toolbar" aria-label="Note controls">
+        <div
+          class="spacer"
+          title="Drag to move note"
+          aria-label="Drag to move note"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="5" r="1.6" />
+            <circle cx="16" cy="5" r="1.6" />
+            <circle cx="8" cy="12" r="1.6" />
+            <circle cx="16" cy="12" r="1.6" />
+            <circle cx="8" cy="19" r="1.6" />
+            <circle cx="16" cy="19" r="1.6" /></svg
+          ><span class="note-label">Note</span>
+        </div>
+        <div class="toolbar-group">
+          <button class="btn" id="new" title="New note" aria-label="New note">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
           </button>
-          <div class="color-popover" id="colorPopover">
-            <div class="swatches" id="swatches"></div>
+          <div class="format-control">
+            <button
+              class="btn"
+              id="formatBtn"
+              title="Text formatting"
+              aria-label="Text formatting"
+              aria-expanded="false"
+            >
+              Aa
+            </button>
+            <div class="format-popover" id="formatPopover">
+              <div
+                class="format-tabs"
+                role="tablist"
+                aria-label="Formatting category"
+              >
+                <button
+                  class="format-tab active"
+                  id="formatTextTab"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="formatTextPanel"
+                >
+                  Text</button
+                ><button
+                  class="format-tab"
+                  id="formatParagraphTab"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="formatParagraphPanel"
+                  tabindex="-1"
+                >
+                  Paragraph
+                </button>
+                <button
+                  class="format-tab"
+                  id="formatListsTab"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="formatListsPanel"
+                  tabindex="-1"
+                >
+                  Lists
+                </button>
+              </div>
+              <div
+                class="format-panel"
+                id="formatTextPanel"
+                role="tabpanel"
+                aria-labelledby="formatTextTab"
+              >
+                <div class="format-section-label">Text style</div>
+                <div class="inline-formats">
+                  <button
+                    type="button"
+                    class="format-btn format-icon"
+                    data-cmd="bold"
+                    title="B"
+                  >
+                    <b>B</b></button
+                  ><button
+                    type="button"
+                    class="format-btn format-icon"
+                    data-cmd="italic"
+                    title="I"
+                  >
+                    <i>I</i></button
+                  ><button
+                    type="button"
+                    class="format-btn format-icon"
+                    data-cmd="underline"
+                    title="U"
+                  >
+                    <u>U</u></button
+                  ><button
+                    type="button"
+                    class="format-btn format-icon"
+                    data-cmd="strikeThrough"
+                    title="S"
+                  >
+                    <s>S</s>
+                  </button>
+                </div>
+                <div class="format-section-label">Text color</div>
+                <div class="color-palette">
+                  <button
+                    type="button"
+                    class="color-swatch"
+                    data-color="inherit"
+                    style="background: currentColor"
+                    title="Default text"
+                    aria-label="Default text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#ef4444"
+                    style="background: #ef4444"
+                    title="Red text"
+                    aria-label="Red text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#f97316"
+                    style="background: #f97316"
+                    title="Orange text"
+                    aria-label="Orange text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#10b981"
+                    style="background: #10b981"
+                    title="Green text"
+                    aria-label="Green text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#3b82f6"
+                    style="background: #3b82f6"
+                    title="Blue text"
+                    aria-label="Blue text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#8b5cf6"
+                    style="background: #8b5cf6"
+                    title="Purple text"
+                    aria-label="Purple text"
+                  ></button
+                  ><button
+                    type="button"
+                    class="color-swatch"
+                    data-color="#ec4899"
+                    style="background: #ec4899"
+                    title="Pink text"
+                    aria-label="Pink text"
+                  ></button>
+                </div>
+                <button
+                  type="button"
+                  class="format-btn clear-format"
+                  data-cmd="removeFormat"
+                  title="Clear formatting"
+                >
+                  Clear formatting
+                </button>
+              </div>
+              <div
+                class="format-panel"
+                id="formatParagraphPanel"
+                role="tabpanel"
+                aria-labelledby="formatParagraphTab"
+                hidden
+              >
+                <div class="format-section-label">Paragraph style</div>
+                <div class="block-formats">
+                  <button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="DIV"
+                    title="Normal text"
+                  >
+                    Normal text</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="H1"
+                    title="Title"
+                  >
+                    Title</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="H2"
+                    title="Heading"
+                  >
+                    Heading</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="H3"
+                    title="Subheading"
+                  >
+                    Subheading
+                  </button>
+                </div>
+                <div class="block-formats">
+                  <button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="BLOCKQUOTE"
+                    title="❝ Quote"
+                  >
+                    ❝ Quote</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="formatBlock"
+                    data-val="PRE"
+                    title="&lt;/&gt; Code block"
+                  >
+                    &lt;/&gt; Code block
+                  </button>
+                </div>
+              </div>
+              <div
+                class="format-panel"
+                id="formatListsPanel"
+                role="tabpanel"
+                aria-labelledby="formatListsTab"
+                hidden
+              >
+                <div class="format-section-label">Lists</div>
+                <div class="list-formats">
+                  <button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="insertUnorderedList"
+                    title="Bullets"
+                  >
+                    Bullets</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="insertOrderedList"
+                    title="Numbers"
+                  >
+                    Numbers</button
+                  ><button
+                    type="button"
+                    class="format-btn"
+                    data-cmd="toggleChecklist"
+                    title="Checklist"
+                  >
+                    Checklist
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="color-control">
+            <button
+              class="btn"
+              id="colorBtn"
+              title="Appearance"
+              aria-label="Appearance: color, opacity, text size"
+              aria-expanded="false"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 7h6m4 0h6M4 17h10m4 0h2" />
+                <circle cx="12" cy="7" r="2" />
+                <circle cx="16" cy="17" r="2" /></svg
+              ><span class="color-dot" id="colorDot"></span>
+            </button>
+            <div class="color-popover" id="colorPopover">
+              <div class="popover-heading">Appearance</div>
+              <div class="appearance-label">Note color</div>
+              <div class="swatches" id="swatches"></div>
+              <label class="appearance-row" for="opacity"
+                ><span>Opacity</span
+                ><span class="opacity-control"
+                  ><input
+                    type="range"
+                    id="opacity"
+                    min="30"
+                    max="100"
+                    title="Opacity"
+                  /><output id="opacityValue" for="opacity">85%</output></span
+                ></label
+              >
+              <div class="appearance-row">
+                <span>Text size</span>
+                <div class="size-stepper">
+                  <button class="btn" id="fontDown" title="Smaller text">
+                    A−</button
+                  ><output id="fontSizeValue" aria-label="Text size">15</output
+                  ><button class="btn" id="fontUp" title="Larger text">
+                    A+
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="format-btn mono-toggle"
+                id="mono"
+                title="Use monospace font for the whole note"
+                aria-pressed="false"
+              >
+                Monospace font <span aria-hidden="true">{ }</span>
+              </button>
+            </div>
           </div>
         </div>
-        <input type="range" id="opacity" min="30" max="100" title="Opacity" />
-        <div class="spacer"></div>
-        <div class="format-control">
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <div class="toolbar-group">
           <button
             class="btn"
-            id="formatBtn"
-            title="Formatting"
-            style="
-              font-family: Georgia, serif;
-              font-style: italic;
-              width: 24px;
-              text-align: center;
-              padding: 2px 0;
-            "
+            id="pin"
+            title="Keep note on top"
+            aria-label="Keep note on top"
           >
-            f
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m16 3 5 5-4 1-3 5-4 1-1-4 5-3 2-5Z" />
+              <path d="m9 15-6 6" />
+            </svg></button
+          ><button
+            class="btn ghost-icon"
+            id="ghost"
+            title="Click-through mode"
+            aria-label="Click-through mode"
+            aria-pressed="false"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 2a8 8 0 0 0-8 8v11a1 1 0 0 0 1.6.8L8 20l3.4 2.55a1 1 0 0 0 1.2 0L16 20l2.4 1.8A1 1 0 0 0 20 21V10a8 8 0 0 0-8-8ZM9 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
+                fill-rule="evenodd"
+              />
+            </svg></button
+          ><button
+            class="btn"
+            id="collapse"
+            title="Collapse to floating dot"
+            aria-label="Collapse to floating dot"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 12h12" />
+            </svg></button
+          ><button
+            class="btn"
+            id="close"
+            title="Hide note"
+            aria-label="Hide note"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m7 7 10 10M17 7 7 17" />
+            </svg>
           </button>
-          <div class="format-popover" id="formatPopover">
-            <div class="color-palette">
-              <button
-                class="color-swatch"
-                style="background: #ef4444"
-                data-color="#ef4444"
-                title="Red"
-              ></button>
-              <button
-                class="color-swatch"
-                style="background: #f97316"
-                data-color="#f97316"
-                title="Orange"
-              ></button>
-              <button
-                class="color-swatch"
-                style="background: #10b981"
-                data-color="#10b981"
-                title="Green"
-              ></button>
-              <button
-                class="color-swatch"
-                style="background: #3b82f6"
-                data-color="#3b82f6"
-                title="Blue"
-              ></button>
-              <button
-                class="color-swatch"
-                style="background: #8b5cf6"
-                data-color="#8b5cf6"
-                title="Purple"
-              ></button>
-              <button
-                class="color-swatch"
-                style="background: #ec4899"
-                data-color="#ec4899"
-                title="Pink"
-              ></button>
-            </div>
-            <div class="format-divider"></div>
-            <button class="format-btn" data-cmd="bold"><b>Bold</b></button>
-            <button class="format-btn" data-cmd="italic"><i>Italic</i></button>
-            <button class="format-btn" data-cmd="underline">
-              <u>Underline</u>
-            </button>
-            <button class="format-btn" data-cmd="strikeThrough">
-              <s>Strikethrough</s>
-            </button>
-            <button class="format-btn" data-cmd="removeFormat">
-              <i>Clear Formatting</i>
-            </button>
-            <div class="format-divider"></div>
-            <button
-              class="format-btn"
-              data-cmd="formatBlock"
-              data-val="H1"
-              style="font-size: 1.2em; font-weight: bold"
-            >
-              Title
-            </button>
-            <button
-              class="format-btn"
-              data-cmd="formatBlock"
-              data-val="H2"
-              style="font-size: 1.1em; font-weight: bold"
-            >
-              Heading
-            </button>
-            <button
-              class="format-btn"
-              data-cmd="formatBlock"
-              data-val="H3"
-              style="font-weight: bold"
-            >
-              Subheading
-            </button>
-            <button class="format-btn" data-cmd="formatBlock" data-val="DIV">
-              Normal Text
-            </button>
-            <button
-              class="format-btn code-style"
-              id="mono"
-              data-cmd="toggleMonospace"
-              title="Switch the whole note between regular and monospace text"
-            >
-              {} Code style
-            </button>
-            <button
-              class="format-btn"
-              data-cmd="formatBlock"
-              data-val="PRE"
-              style="font-family: monospace"
-            >
-              Monostyled
-            </button>
-            <div class="format-divider"></div>
-            <button class="format-btn" data-cmd="insertUnorderedList">
-              • Bulleted List
-            </button>
-            <button class="format-btn" data-cmd="insertOrderedList">
-              1. Numbered List
-            </button>
-            <button class="format-btn" data-cmd="toggleChecklist">
-              ✓ Checklist
-            </button>
-            <button
-              class="format-btn"
-              data-cmd="formatBlock"
-              data-val="BLOCKQUOTE"
-              style="
-                border-left: 2px solid currentColor;
-                padding-left: 4px;
-                margin-left: 4px;
-              "
-            >
-              Block Quote
-            </button>
-          </div>
         </div>
-        <button class="btn" id="fontDown" title="Smaller text">A−</button>
-        <button class="btn" id="fontUp" title="Larger text">A+</button>
-        <button
-          class="btn"
-          id="pin"
-          title="Pinned: stays on top when you switch apps"
-        >
-          📌
-        </button>
-        <button
-          class="btn"
-          id="ghost"
-          title="Click-through: see & click behind (⌘⇧G)"
-        >
-          👻
-        </button>
-        <button class="btn" id="new" title="New note">＋</button>
-        <button
-          class="btn"
-          id="collapse"
-          title="Collapse to floating dot"
-          aria-label="Collapse to floating dot"
-        >
-          −
-        </button>
-        <button class="btn" id="close" title="Close note">✕</button>
       </div>
       <div
         id="text"
@@ -743,9 +443,17 @@
         role="textbox"
         aria-multiline="true"
         aria-label="Note text"
-        placeholder="Your private notes… (invisible to screen sharing)"
+        placeholder="A thought, a plan, a little reminder…"
         spellcheck="false"
       ></div>
+      <button
+        class="resize-handle"
+        type="button"
+        title="Drag to resize note"
+        aria-label="Resize note"
+      >
+        ↘
+      </button>
     </div>
     <button
       id="bubble"

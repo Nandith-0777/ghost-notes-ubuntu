@@ -7,11 +7,11 @@ const SAFE_IMAGE_NAME = /^[\w-]+\.[a-z0-9]+$/;
 let imagesDir = null;
 
 const COLORS = {
-  yellow: { tint: "255, 224, 130", dark: false },
-  green: { tint: "178, 235, 178", dark: false },
-  blue: { tint: "170, 214, 255", dark: false },
-  pink: { tint: "255, 190, 214", dark: false },
-  purple: { tint: "212, 190, 255", dark: false },
+  yellow: { tint: "255, 242, 184", dark: false },
+  green: { tint: "218, 238, 215", dark: false },
+  blue: { tint: "215, 232, 252", dark: false },
+  pink: { tint: "249, 220, 233", dark: false },
+  purple: { tint: "230, 220, 250", dark: false },
   dark: { tint: "40, 42, 48", dark: true },
 };
 
@@ -43,21 +43,95 @@ let state = {
 const noteEl = document.querySelector(".note");
 const barEl = document.querySelector(".bar");
 
+const resizeHandle = document.querySelector(".resize-handle");
+let noteDragPointer = null;
+let noteDragPointerType = null;
+let noteDragMethod = "drag";
+function beginNoteDrag(event, resizing = false) {
+  if (
+    event.button !== 0 ||
+    changingCollapsed ||
+    (!resizing && !event.target.matches(".bar, .spacer"))
+  )
+    return;
+  event.preventDefault();
+  noteDragPointer = event.pointerId;
+  noteDragPointerType = event.pointerType;
+  noteDragMethod = resizing ? "resize" : "drag";
+  setIgnore(false);
+  noteEl.setPointerCapture(event.pointerId);
+  window.notes[noteDragMethod](id, "start", event.screenX, event.screenY);
+}
+barEl.addEventListener("pointerdown", (event) => beginNoteDrag(event));
+resizeHandle.addEventListener("pointerdown", (event) =>
+  beginNoteDrag(event, true),
+);
+// XWayland can report captured mouse motion with a different device type/ID.
+window.addEventListener("pointermove", (event) => {
+  if (
+    noteDragPointer === null ||
+    (noteDragPointerType !== "mouse" && noteDragPointer !== event.pointerId)
+  )
+    return;
+  if (noteDragPointerType === "mouse" && !(event.buttons & 1)) {
+    endNoteDrag(event);
+    return;
+  }
+  window.notes[noteDragMethod](id, "move", event.screenX, event.screenY);
+});
+function endNoteDrag(event) {
+  if (
+    noteDragPointer === null ||
+    (noteDragPointerType !== "mouse" && noteDragPointer !== event.pointerId)
+  )
+    return;
+  const capturedPointer = noteDragPointer;
+  noteDragPointer = null;
+  noteDragPointerType = null;
+  window.notes[noteDragMethod](id, "end", event.screenX, event.screenY);
+  if (noteEl.hasPointerCapture(capturedPointer))
+    noteEl.releasePointerCapture(capturedPointer);
+}
+window.addEventListener("pointerup", endNoteDrag);
+window.addEventListener("pointercancel", endNoteDrag);
+noteEl.addEventListener("lostpointercapture", endNoteDrag);
+
 // --- Click-through ("ghost") mode ---
 // When on, the note ignores mouse events (clicks reach whatever is behind it),
 // EXCEPT while the cursor is over the toolbar — so you can still toggle it off,
 // drag, or recolor. `forward:true` in the main process keeps mousemove events
 // flowing to us even while clicks are being ignored, which powers this.
 let ignoring = false;
+let recovering = false;
 function setIgnore(v) {
-  if (v === ignoring) return;
+  const recover =
+    state.ghost && !state.collapsed && !changingCollapsed && !toolbarMenuOpen();
+  if (v === ignoring && recover === recovering) return;
   ignoring = v;
-  window.notes.setIgnoreMouse(id, v);
+  recovering = recover;
+  window.notes.setIgnoreMouse(id, v, recover);
+}
+
+function toolbarMenuOpen() {
+  return (
+    colorPopover.classList.contains("open") ||
+    formatPopover.classList.contains("open")
+  );
 }
 
 function applyGhost() {
+  const ghostButton = document.getElementById("ghost");
+  ghostButton.setAttribute("aria-pressed", String(state.ghost));
+  ghostButton.title = state.ghost
+    ? "Click-through is on · Click to edit your note"
+    : "Click-through is off · Click to interact with the app behind this note";
   noteEl.classList.toggle("ghost", state.ghost);
-  if (state.ghost && !state.collapsed && !changingCollapsed) {
+  if (
+    state.ghost &&
+    !state.collapsed &&
+    !changingCollapsed &&
+    !toolbarMenuOpen()
+  ) {
     setIgnore(true); // pass clicks through by default; the toolbar re-enables
   } else {
     setIgnore(false); // fully interactive again
@@ -75,9 +149,28 @@ function setGhost(on) {
 }
 
 window.addEventListener("mousemove", (e) => {
-  if (!state.ghost || state.collapsed || changingCollapsed) return;
+  if (
+    !state.ghost ||
+    state.collapsed ||
+    changingCollapsed ||
+    noteDragPointer !== null ||
+    toolbarMenuOpen()
+  )
+    return;
   // Re-enable interaction only while hovering the toolbar.
-  setIgnore(!e.target.closest(".bar"));
+  setIgnore(!e.target.closest(".bar, .resize-handle"));
+});
+
+window.notes.onPointerPosition(({ x, y }) => {
+  if (
+    !state.ghost ||
+    state.collapsed ||
+    changingCollapsed ||
+    noteDragPointer !== null ||
+    toolbarMenuOpen()
+  )
+    return;
+  setIgnore(!document.elementFromPoint(x, y)?.closest(".bar, .resize-handle"));
 });
 
 // --- Pin (always-on-top) toggle ---
@@ -87,6 +180,7 @@ window.addEventListener("mousemove", (e) => {
 // setAlwaysOnTop call; this just reflects/requests the state.
 function applyPinned() {
   pinBtn.classList.toggle("active", state.pinned);
+  pinBtn.setAttribute("aria-pressed", String(state.pinned));
   pinBtn.title = state.pinned
     ? "Pinned: stays on top when you switch apps"
     : "Not pinned: can be covered by other windows";
@@ -104,6 +198,7 @@ pinBtn.addEventListener("click", () => setPinned(!state.pinned));
 function applyMonospace() {
   noteEl.classList.toggle("mono", state.monospace);
   monoBtn.classList.toggle("active", state.monospace);
+  monoBtn.setAttribute("aria-pressed", String(state.monospace));
   monoBtn.title = state.monospace
     ? "Normal font"
     : "Monospace: better for code snippets";
@@ -133,13 +228,25 @@ function applyColor(color) {
 // Keep header minimal: one dot button opens a small palette instead of
 // showing every swatch inline. Lives inside .bar so it inherits the same
 // drag/no-drag and ghost-mode hover-to-interact rules as the rest of the toolbar.
+function positionToolbarPopover(popover, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  popover.style.position = "fixed";
+  popover.style.right = "auto";
+  popover.style.top = `${rect.bottom + 4}px`;
+  popover.style.left = `${Math.max(6, Math.min(window.innerWidth - popover.offsetWidth - 6, rect.right - popover.offsetWidth))}px`;
+}
 function setColorPopoverOpen(open) {
   colorPopover.classList.toggle("open", open);
+  colorBtn.setAttribute("aria-expanded", String(open));
+  if (open) positionToolbarPopover(colorPopover, colorBtn);
+  applyGhost();
 }
 
 colorBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  setColorPopoverOpen(!colorPopover.classList.contains("open"));
+  const open = !colorPopover.classList.contains("open");
+  setFormatPopoverOpen(false);
+  setColorPopoverOpen(open);
 });
 
 document.addEventListener("click", (e) => {
@@ -147,9 +254,82 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".format-control")) setFormatPopoverOpen(false);
 });
 
+let editorSelection = null;
+function rememberEditorSelection() {
+  const selection = window.getSelection();
+  if (
+    selection.rangeCount &&
+    textEl.contains(selection.anchorNode) &&
+    textEl.contains(selection.focusNode)
+  ) {
+    editorSelection = selection.getRangeAt(0).cloneRange();
+  }
+}
+function restoreEditorSelection() {
+  textEl.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  if (
+    editorSelection &&
+    textEl.contains(editorSelection.startContainer) &&
+    textEl.contains(editorSelection.endContainer)
+  ) {
+    selection.removeAllRanges();
+    selection.addRange(editorSelection);
+  }
+}
+document.addEventListener("selectionchange", rememberEditorSelection);
+formatBtn.addEventListener("mousedown", (event) => {
+  rememberEditorSelection();
+  event.preventDefault();
+});
+formatPopover.addEventListener("mousedown", (event) => {
+  if (event.target.closest("button")) event.preventDefault();
+});
+const formatTabs = [...formatPopover.querySelectorAll('[role="tab"]')];
+function selectFormatTab(tab) {
+  formatTabs.forEach((item) => {
+    const selected = item === tab;
+    item.classList.toggle("active", selected);
+    item.setAttribute("aria-selected", String(selected));
+    item.tabIndex = selected ? 0 : -1;
+    document.getElementById(item.getAttribute("aria-controls")).hidden =
+      !selected;
+  });
+  positionToolbarPopover(formatPopover, formatBtn);
+}
+formatTabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => selectFormatTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const next =
+      formatTabs[(index + direction + formatTabs.length) % formatTabs.length];
+    selectFormatTab(next);
+    next.focus();
+  });
+});
+const formatNames = {
+  bold: "Bold",
+  italic: "Italic",
+  underline: "Underline",
+  strikeThrough: "Strikethrough",
+};
+for (const [command, name] of Object.entries(formatNames)) {
+  const button = formatPopover.querySelector(`[data-cmd="${command}"]`);
+  button.title = name;
+  button.setAttribute("aria-label", name);
+}
+
 // --- Formatting Popover ---
 function setFormatPopoverOpen(open) {
   formatPopover.classList.toggle("open", open);
+  formatBtn.setAttribute("aria-expanded", String(open));
+  if (open) {
+    rememberEditorSelection();
+    positionToolbarPopover(formatPopover, formatBtn);
+  }
+  applyGhost();
 }
 
 formatBtn.addEventListener("click", (e) => {
@@ -226,8 +406,25 @@ function selectedListItems() {
   return items;
 }
 
+function clearChecklistLists(items) {
+  const lists = new Set(items.map((item) => item.closest("ul, ol")));
+  for (const list of lists) {
+    if (!list) continue;
+    delete list.dataset.type;
+    list
+      .querySelectorAll(":scope > li")
+      .forEach((item) => delete item.dataset.checked);
+  }
+}
 function toggleChecklist() {
   let items = selectedListItems();
+  if (
+    items.length &&
+    items.every((item) => item.parentElement?.dataset.type === "checklist")
+  ) {
+    clearChecklistLists(items);
+    return;
+  }
   if (items.length === 0) {
     document.execCommand("insertUnorderedList", false, null);
     items = selectedListItems();
@@ -298,8 +495,13 @@ formatPopover.addEventListener("click", (e) => {
   const swatch = e.target.closest(".color-swatch");
   if (swatch) {
     const color = swatch.dataset.color;
-    textEl.focus();
-    document.execCommand("foreColor", false, color);
+    restoreEditorSelection();
+    document.execCommand(
+      "foreColor",
+      false,
+      color === "inherit" ? getComputedStyle(textEl).color : color,
+    );
+    rememberEditorSelection();
     syncStateFromDom();
     push();
     return;
@@ -310,7 +512,7 @@ formatPopover.addEventListener("click", (e) => {
   const cmd = btn.dataset.cmd;
   let val = btn.dataset.val || null;
 
-  textEl.focus();
+  restoreEditorSelection();
 
   if (cmd === "removeFormat") {
     // TODO: migrate to Selection API (document.execCommand is deprecated)
@@ -326,14 +528,19 @@ formatPopover.addEventListener("click", (e) => {
   } else if (cmd === "formatBlock" && val) {
     applyBlockFormat(val);
   } else if (["insertUnorderedList", "insertOrderedList"].includes(cmd)) {
-    document.execCommand(cmd, false, val);
+    const items = selectedListItems();
+    const wasChecklist = items.some(
+      (item) => item.parentElement?.dataset.type === "checklist",
+    );
+    if (wasChecklist) clearChecklistLists(items);
+    if (!wasChecklist || cmd !== "insertUnorderedList")
+      document.execCommand(cmd, false, val);
     cleanWebKitStyles();
   } else {
     document.execCommand(cmd, false, val);
   }
 
-  // Do not close the popover automatically so user can select multiple formatting options
-
+  rememberEditorSelection();
   syncStateFromDom();
   push();
 });
@@ -386,6 +593,13 @@ document.addEventListener("selectionchange", () => {
           ].includes(cmd)
         ) {
           isActive = document.queryCommandState(cmd);
+          if (
+            cmd === "insertUnorderedList" &&
+            selectedListItems().some(
+              (item) => item.parentElement?.dataset.type === "checklist",
+            )
+          )
+            isActive = false;
         } else if (cmd === "formatBlock") {
           const val = btn.dataset.val;
           const currentBlock = document.queryCommandValue("formatBlock");
@@ -398,6 +612,7 @@ document.addEventListener("selectionchange", () => {
         }
       } catch (e) {}
 
+      btn.setAttribute("aria-pressed", String(isActive));
       if (isActive) {
         btn.classList.add("active");
       } else {
@@ -415,6 +630,8 @@ document.addEventListener("selectionchange", () => {
         const b = parseInt(hex.slice(5, 7), 16);
         rgb = `rgb(${r}, ${g}, ${b})`;
       }
+      if (hex === "inherit") rgb = getComputedStyle(textEl).color;
+      sw.setAttribute("aria-pressed", String(rgb === currentForeColor));
       if (rgb === currentForeColor) {
         sw.classList.add("active");
       } else {
@@ -683,7 +900,9 @@ function applyState() {
   applyColor(state.color);
   root.style.setProperty("--opacity", state.opacity);
   root.style.setProperty("--font-size", state.fontSize + "px");
+  document.getElementById("fontSizeValue").textContent = state.fontSize;
   opacityEl.value = Math.round(state.opacity * 100);
+  document.getElementById("opacityValue").textContent = opacityEl.value + "%";
 
   let content = state.text || "";
   if (state.rich) {
@@ -780,17 +999,20 @@ textEl.addEventListener("paste", async (e) => {
 opacityEl.addEventListener("input", () => {
   state.opacity = Math.max(0.3, Math.min(1, opacityEl.value / 100));
   root.style.setProperty("--opacity", state.opacity);
+  document.getElementById("opacityValue").textContent = opacityEl.value + "%";
   push();
 });
 
 document.getElementById("fontUp").addEventListener("click", () => {
   state.fontSize = Math.min(32, state.fontSize + 1);
   root.style.setProperty("--font-size", state.fontSize + "px");
+  document.getElementById("fontSizeValue").textContent = state.fontSize;
   push();
 });
 document.getElementById("fontDown").addEventListener("click", () => {
   state.fontSize = Math.max(10, state.fontSize - 1);
   root.style.setProperty("--font-size", state.fontSize + "px");
+  document.getElementById("fontSizeValue").textContent = state.fontSize;
   push();
 });
 document
@@ -1050,11 +1272,19 @@ function parseMarkdownToHTML(text) {
   return html.trim();
 }
 
-window.notes.runtime().then((runtime) => {
-  if (runtime.platform === "linux") {
-    textEl.setAttribute(
-      "placeholder",
-      "Your notes… (capture protection depends on your desktop)",
-    );
+window.addEventListener("resize", () => {
+  if (colorPopover.classList.contains("open"))
+    positionToolbarPopover(colorPopover, colorBtn);
+  if (formatPopover.classList.contains("open"))
+    positionToolbarPopover(formatPopover, formatBtn);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && toolbarMenuOpen()) {
+    const button = colorPopover.classList.contains("open")
+      ? colorBtn
+      : formatBtn;
+    setColorPopoverOpen(false);
+    setFormatPopoverOpen(false);
+    button.focus();
   }
 });

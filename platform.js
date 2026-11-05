@@ -1,3 +1,4 @@
+const shortcutKeys = require("./manager/key-combo");
 const isMac = process.platform === "darwin";
 const isWindows = process.platform === "win32";
 const isLinux = process.platform === "linux";
@@ -11,12 +12,199 @@ const DESKTOP_ID = "com.invisiblenotes.app.desktop";
 const NOTE_TITLE = "Ghost Notes Note";
 let linuxBackend = null;
 let compositorMask = false;
+let compositorOmit = false;
 let storageStatus = { encrypted: false, backend: "unavailable" };
 let shortcutStatus = "not-registered";
 let desktopCommand = null;
-let compositorBinding = null;
+const compositorBindings = new Map();
 let shortcutConflict = false;
 let shortcutOwner = null;
+const pointerRecovery = new WeakMap();
+const inputUpdates = new WeakMap();
+const pinnedWindows = new WeakMap();
+
+function syncCompositorPin(win, pinned) {
+  if (
+    !isLinux ||
+    linuxBackend === "wayland" ||
+    !process.env.HYPRLAND_INSTANCE_SIGNATURE ||
+    !win.getNativeWindowHandle
+  )
+    return;
+  const previous = pinnedWindows.get(win);
+  if (previous) clearTimeout(previous.timer);
+  const registration = { pinned, timer: null };
+  pinnedWindows.set(win, registration);
+  const attempt = (remaining) => {
+    if (win.isDestroyed() || pinnedWindows.get(win) !== registration) return;
+    try {
+      const xid = win.getNativeWindowHandle().readUInt32LE(0);
+      const result = execFileSync(
+        "hyprctl",
+        ["ghostnotes:pin", String(xid), pinned ? "1" : "0"],
+        { encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "pipe"] },
+      );
+      if (result.trim() === "not-mapped" && remaining > 0) {
+        registration.timer = setTimeout(() => attempt(remaining - 1), 100);
+        registration.timer.unref?.();
+      }
+    } catch {
+      /* The companion plugin is optional outside Hyprland. */
+    }
+  };
+  registration.timer = setTimeout(() => attempt(10), 100);
+  registration.timer.unref?.();
+}
+
+function compositorPointer(env = process.env, command = "j/cursorpos") {
+  return new Promise((resolve) => {
+    if (!env.HYPRLAND_INSTANCE_SIGNATURE || !env.XDG_RUNTIME_DIR)
+      return resolve(null);
+    const socket = net.createConnection(
+      path.join(
+        env.XDG_RUNTIME_DIR,
+        "hypr",
+        env.HYPRLAND_INSTANCE_SIGNATURE,
+        ".socket.sock",
+      ),
+    );
+    let response = "";
+    const finish = (value) => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(250, () => finish(null));
+    socket.on("error", () => finish(null));
+    socket.on("connect", () => socket.write(command));
+    socket.on("data", (chunk) => {
+      response += chunk;
+      if (response.length > 4096) return finish(null);
+      try {
+        const point = JSON.parse(response);
+        finish(
+          Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null,
+        );
+      } catch {
+        /* Wait for the rest of the JSON response. */
+      }
+    });
+    socket.on("end", () => finish(null));
+  });
+}
+
+async function dragPointer(win, fallback, scale = null) {
+  if (
+    !isLinux ||
+    linuxBackend === "wayland" ||
+    !process.env.HYPRLAND_INSTANCE_SIGNATURE ||
+    !win.getNativeWindowHandle
+  )
+    return { ...fallback, scale: null };
+  const xid = win.getNativeWindowHandle().readUInt32LE(0);
+  const [cursor, geometry] = await Promise.all([
+    compositorPointer(),
+    scale
+      ? null
+      : compositorPointer(process.env, "j/ghostnotes:geometry " + xid),
+  ]);
+  if (!scale && geometry?.width > 0 && geometry?.height > 0) {
+    const bounds = win.getBounds();
+    scale = {
+      x: bounds.width / geometry.width,
+      y: bounds.height / geometry.height,
+    };
+  }
+  if (cursor && scale)
+    return { x: cursor.x * scale.x, y: cursor.y * scale.y, scale };
+  return scale ? null : { ...fallback, scale: null };
+}
+
+function syncCompositorInput(win, ignore, enabled) {
+  if (
+    !isLinux ||
+    linuxBackend === "wayland" ||
+    !process.env.HYPRLAND_INSTANCE_SIGNATURE ||
+    !win.getNativeWindowHandle
+  )
+    return;
+  let update = inputUpdates.get(win);
+  if (update) {
+    update.ignore = ignore;
+    update.enabled = enabled;
+    return;
+  }
+  update = { ignore, enabled };
+  inputUpdates.set(win, update);
+  const send = async (remaining = 20) => {
+    if (win.isDestroyed()) {
+      inputUpdates.delete(win);
+      return;
+    }
+    const requested = update.ignore;
+    const requestedEnabled = update.enabled;
+    const xid = win.getNativeWindowHandle().readUInt32LE(0);
+    const reply = await compositorPointer(
+      process.env,
+      "j/ghostnotes:input " +
+        xid +
+        " " +
+        (requested ? "1" : "0") +
+        " " +
+        (requestedEnabled ? "1" : "0"),
+    );
+    if (requested !== update.ignore || requestedEnabled !== update.enabled)
+      return send();
+    if (reply?.blocked !== requested && remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+      return send(remaining - 1);
+    }
+    inputUpdates.delete(win);
+  };
+  send().catch(() => inputUpdates.delete(win));
+}
+
+function setIgnoreMouseEvents(win, ignore, screen, recover = ignore) {
+  syncCompositorInput(win, ignore, recover);
+  win.setIgnoreMouseEvents(ignore, { forward: true });
+  if (!isLinux) return;
+  clearInterval(pointerRecovery.get(win));
+  pointerRecovery.delete(win);
+  if (!recover) return;
+  // Electron only forwards ignored mouse moves on Windows/macOS. Poll the
+  // desktop pointer so Linux users can still reach the ghost-mode toolbar.
+  let pending = false;
+  const timer = setInterval(async () => {
+    if (win.isDestroyed()) {
+      clearInterval(timer);
+      return;
+    }
+    if (!win.isVisible() || pending) return;
+    pending = true;
+    const xid = compositorOmit && win.getNativeWindowHandle?.().readUInt32LE(0);
+    const [compositorPoint, geometry] = await Promise.all([
+      compositorPointer(),
+      xid
+        ? compositorPointer(process.env, "j/ghostnotes:geometry " + xid)
+        : null,
+    ]);
+    const point = compositorPoint || screen.getCursorScreenPoint();
+    pending = false;
+    if (win.isDestroyed() || pointerRecovery.get(win) !== timer) return;
+    const bounds = win.getBounds();
+    win.webContents.send("note:pointerPosition", {
+      x:
+        geometry?.width > 0
+          ? ((point.x - geometry.x) * bounds.width) / geometry.width
+          : point.x - bounds.x,
+      y:
+        geometry?.height > 0
+          ? ((point.y - geometry.y) * bounds.height) / geometry.height
+          : point.y - bounds.y,
+    });
+  }, 80);
+  timer.unref?.();
+  pointerRecovery.set(win, timer);
+}
 
 function configureApp(app, env = process.env) {
   if (env.GHOST_NOTES_DATA_DIR) {
@@ -34,7 +222,6 @@ function configureApp(app, env = process.env) {
       ...(app.isPackaged ? [] : [app.getAppPath()]),
       "--ozone-platform=x11",
       "--class=com.invisiblenotes.app",
-      "--new-note",
     ];
     desktopCommand = executable.map(quote).join(" ");
     if (env.GHOST_NOTES_DATA_DIR)
@@ -49,7 +236,25 @@ function configureApp(app, env = process.env) {
       .slice(0, 12);
   }
   // Native Wayland forbids the positioning and sizing bubble mode needs.
-  if (!app.commandLine.hasSwitch("ozone-platform") && env.DISPLAY) {
+  const explicitBackend = process.argv
+    ? process.argv.some(
+        (arg) =>
+          arg === "--ozone-platform" || arg.startsWith("--ozone-platform="),
+      )
+    : app.commandLine.hasSwitch("ozone-platform");
+  if (
+    !explicitBackend &&
+    env.DISPLAY &&
+    app.commandLine.getSwitchValue("ozone-platform") === "wayland" &&
+    typeof app.relaunch === "function"
+  ) {
+    // Chromium may initialize Ozone before main.js. Changing that backend in
+    // place can crash the GPU process; restart before opening any note store.
+    app.relaunch({ args: launchArguments(process.argv.slice(1), env) });
+    app.exit(0);
+    return;
+  }
+  if (!explicitBackend && env.DISPLAY) {
     app.commandLine.appendSwitch("ozone-platform", "x11");
   }
   linuxBackend =
@@ -195,30 +400,32 @@ function createStorageCodec(safeStorage) {
     : null;
 }
 
-function registerCompositorShortcut(accelerator) {
+function registerCompositorShortcut(accelerator, action = "newNote") {
   shortcutConflict = false;
+  const flags = {
+    newNote: "--new-note",
+    openManager: "--manager",
+    toggleHideAll: "--toggle-notes",
+    toggleGhostAll: "--toggle-ghost",
+  };
+  if (!Object.hasOwn(flags, action)) return false;
+  const owner = shortcutOwner + (action === "newNote" ? "" : ":" + action);
+  const command = desktopCommand + " " + flags[action];
   if (!isLinux || !process.env.HYPRLAND_INSTANCE_SIGNATURE || !desktopCommand)
     return false;
-  const parts = accelerator.split("+");
-  const key = parts.pop();
-  const masks = {
-    CommandOrControl: 4,
-    CmdOrCtrl: 4,
-    Control: 4,
-    Ctrl: 4,
-    Alt: 8,
-    Option: 8,
-    Shift: 1,
-    Super: 64,
-    Meta: 64,
-  };
-  if (
-    !/^(?:[A-Za-z0-9]|F(?:[1-9]|1[0-2]))$/.test(key) ||
-    parts.some((p) => !masks[p])
-  )
-    return false;
-  const mask = parts.reduce((value, p) => value | masks[p], 0);
-  const description = "Ghost Notes global new note " + shortcutOwner;
+  const parsed = shortcutKeys.parse(accelerator, isMac);
+  if (!parsed || parsed.altgr) return false;
+  const key = shortcutKeys.hyprKey(parsed.key);
+  const mask =
+    (parsed.ctrl ? 4 : 0) |
+    (parsed.alt ? 8 : 0) |
+    (parsed.shift ? 1 : 0) |
+    (parsed.meta ? 64 : 0);
+  const description =
+    "Ghost Notes global " +
+    (action === "newNote" ? "new note" : action) +
+    " " +
+    shortcutOwner;
   try {
     const binds = JSON.parse(
       execFileSync("hyprctl", ["binds", "-j"], {
@@ -235,7 +442,7 @@ function registerCompositorShortcut(accelerator) {
       return false;
     }
     if (matches.some((b) => b.description === description)) {
-      compositorBinding = accelerator;
+      compositorBindings.set(action, owner);
       return true;
     }
     const mods = [
@@ -246,35 +453,36 @@ function registerCompositorShortcut(accelerator) {
     ]
       .filter(([m]) => mask & m)
       .map(([, n]) => n);
-    const keys = [...mods, key.toUpperCase()].join(" + ");
-    const lua = `ghost_notes_shortcuts = ghost_notes_shortcuts or {}; local owner = ${JSON.stringify(shortcutOwner)}; if ghost_notes_shortcuts[owner] then ghost_notes_shortcuts[owner]:unbind() end; ghost_notes_shortcuts[owner] = hl.bind(${JSON.stringify(keys)}, hl.dsp.exec_cmd(${JSON.stringify(desktopCommand)}), { description = ${JSON.stringify(description)} })`;
+    const keys = [...mods, key].join(" + ");
+    const lua = `ghost_notes_shortcuts = ghost_notes_shortcuts or {}; local owner = ${JSON.stringify(owner)}; if ghost_notes_shortcuts[owner] then ghost_notes_shortcuts[owner]:unbind() end; ghost_notes_shortcuts[owner] = hl.bind(${JSON.stringify(keys)}, hl.dsp.exec_cmd(${JSON.stringify(command)}), { description = ${JSON.stringify(description)} })`;
     const result = execFileSync("hyprctl", ["eval", lua], {
       encoding: "utf8",
       timeout: 2500,
     });
     if (/error:/i.test(result)) return false;
-    compositorBinding = accelerator;
+    compositorBindings.set(action, owner);
     return true;
   } catch {
     return false;
   }
 }
 
-function unregisterCompositorShortcut() {
-  if (!compositorBinding) return;
+function unregisterCompositorShortcut(action = "newNote") {
+  const owner = compositorBindings.get(action);
+  if (!owner) return;
   try {
     execFileSync(
       "hyprctl",
       [
         "eval",
-        `local owner = ${JSON.stringify(shortcutOwner)}; if ghost_notes_shortcuts and ghost_notes_shortcuts[owner] then ghost_notes_shortcuts[owner]:unbind(); ghost_notes_shortcuts[owner] = nil end`,
+        `local owner = ${JSON.stringify(owner)}; if ghost_notes_shortcuts and ghost_notes_shortcuts[owner] then ghost_notes_shortcuts[owner]:unbind(); ghost_notes_shortcuts[owner] = nil end`,
       ],
       { timeout: 2500, stdio: "ignore" },
     );
   } catch {
     /* The compositor may already have shut down. */
   }
-  compositorBinding = null;
+  compositorBindings.delete(action);
 }
 
 function setShortcutStatus(value) {
@@ -282,27 +490,46 @@ function setShortcutStatus(value) {
 }
 
 function runtimeStatus() {
+  const captureMessage = captureExclusionCaveat();
   return {
     platform: isLinux ? "linux" : isMac ? "macos" : "windows",
     backend: isLinux ? linuxBackend : null,
     capture: {
       mode: isLinux
-        ? compositorMask
-          ? "compositor-mask"
-          : "unsupported"
+        ? compositorOmit
+          ? "compositor-omit"
+          : compositorMask
+            ? "compositor-mask"
+            : "unsupported"
         : "os-content-protection",
-      message: captureExclusionCaveat(),
+      message: captureMessage,
     },
     storage: { ...storageStatus },
     globalShortcut: shortcutStatus,
   };
 }
 
-function installLinuxDesktop({ home, electronPath, hyprland = false }) {
+function installLinuxDesktop({
+  home,
+  electronPath,
+  hyprland = false,
+  capturePlugin = false,
+}) {
   if (!isLinux) throw new Error("This setup command is for Linux only.");
   const config = process.env.XDG_CONFIG_HOME || path.join(home, ".config");
   const data = process.env.XDG_DATA_HOME || path.join(home, ".local", "share");
   const hyprConfig = path.join(config, "hypr", "hyprland.lua");
+  const pluginPath = path.join(
+    __dirname,
+    "dist",
+    "hyprland",
+    "ghost-notes-capture.so",
+  );
+  if (capturePlugin && (!hyprland || !fs.existsSync(pluginPath))) {
+    throw new Error(
+      "Capture exclusion needs --hyprland and npm run build:capture-plugin first.",
+    );
+  }
   if (hyprland && !fs.existsSync(hyprConfig)) {
     throw new Error(
       "Hyprland Lua configuration was not found. See LINUX.md for other desktops and older Hyprland versions.",
@@ -332,9 +559,17 @@ function installLinuxDesktop({ home, electronPath, hyprland = false }) {
   );
   if (hyprland) {
     const rules = path.join(config, "hypr", "ghost-notes.lua");
-    const source = fs.readFileSync(
+    let source = fs.readFileSync(
       path.join(__dirname, "integrations", "hyprland.lua"),
     );
+    if (capturePlugin) {
+      source = Buffer.from(
+        source.toString() +
+          "\nhl.plugin.load(" +
+          JSON.stringify(pluginPath) +
+          ")\n",
+      );
+    }
     if (fs.existsSync(rules) && !fs.readFileSync(rules).equals(source)) {
       fs.copyFileSync(rules, rules + `.backup-${Date.now()}`);
     }
@@ -364,6 +599,8 @@ function isCommandOrControlPressed(input) {
 }
 
 const MAC_SYMBOLS = {
+  Super: "⌘",
+  Meta: "⌘",
   CommandOrControl: "⌘",
   CmdOrCtrl: "⌘",
   Command: "⌘",
@@ -376,6 +613,8 @@ const MAC_SYMBOLS = {
 };
 const MAC_MODIFIER_ORDER = ["⌃", "⌥", "⇧", "⌘"];
 const WINDOWS_NAMES = {
+  Super: isWindows ? "Win" : "Super",
+  Meta: isWindows ? "Win" : "Super",
   CommandOrControl: "Ctrl",
   CmdOrCtrl: "Ctrl",
   Command: "Ctrl",
@@ -412,6 +651,7 @@ function formatAccelerator(accelerator) {
 }
 
 function setPinned(win, pinned) {
+  syncCompositorPin(win, pinned);
   if (pinned) {
     win.setAlwaysOnTop(true, "screen-saver");
     if (isMac)
@@ -424,6 +664,23 @@ function setPinned(win, pinned) {
 
 function captureExclusionCaveat() {
   if (isLinux) {
+    compositorOmit = false;
+    if (process.env.HYPRLAND_INSTANCE_SIGNATURE) {
+      try {
+        const status = JSON.parse(
+          execFileSync("hyprctl", ["ghostnotes:status", "-j"], {
+            encoding: "utf8",
+            timeout: 1500,
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
+        );
+        compositorOmit = status.mode === "compositor-omit";
+      } catch {
+        /* Optional companion plugin is not loaded. */
+      }
+    }
+    if (compositorOmit)
+      return "Protected notes are omitted from compositor-managed screen captures by the Ghost Notes Hyprland plugin. Direct GPU/KMS and X11 capture bypass this protection. Other desktops require their own integration.";
     return compositorMask
       ? "Hyprland capture masking is requested. Supported compositor capture paths may show a black rectangle. GPU/KMS recorders can still capture notes. Verify your sharing application before use."
       : "Screen-capture exclusion is unavailable on this Linux desktop. Notes may appear in recordings and screen shares.";
@@ -455,4 +712,7 @@ module.exports = {
   formatAccelerator,
   setPinned,
   captureExclusionCaveat,
+  setIgnoreMouseEvents,
+  compositorPointer,
+  dragPointer,
 };

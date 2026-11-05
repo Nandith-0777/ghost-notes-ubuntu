@@ -24,8 +24,8 @@ const {
 const { clampToVisibleDisplay, displayIdForPoint } = require("./displayUtils");
 const {
   registerShortcuts,
-  registerFallbackShortcut,
-  unregisterFallbackShortcut,
+  registerGlobalShortcuts,
+  unregisterGlobalShortcuts,
   getShortcuts,
   applyOverrides,
 } = require("./manager/shortcuts");
@@ -163,13 +163,32 @@ function createManager() {
       importNotes: (records, mode) => importNotes(records, mode),
       setTheme: (mode) => setThemeMode(mode),
       setAccent: (id) => setAccentId(id),
+      onShortcutRecording: (active) => {
+        if (active) unregisterGlobalShortcuts(globalShortcut);
+        else registerAllGlobalShortcuts();
+      },
       onShortcutsUpdated: () => {
-        unregisterFallbackShortcut(globalShortcut);
-        registerFallbackShortcut(globalShortcut, () => createNoteNearCursor());
+        registerAllGlobalShortcuts();
         updateTrayMenu();
       },
     },
   });
+}
+
+function registerAllGlobalShortcuts() {
+  return registerGlobalShortcuts(globalShortcut, {
+    newNote: () => createNoteNearCursor(),
+    openManager: () => manager.openManagerWindow(),
+    toggleHideAll: () => toggleHideAll(),
+    toggleGhostAll: () => toggleGhostAll(),
+  });
+}
+
+function handleShortcutLaunch(argv) {
+  if (argv.includes("--new-note")) createNoteNearCursor();
+  else if (argv.includes("--toggle-notes")) toggleHideAll();
+  else if (argv.includes("--toggle-ghost")) toggleGhostAll();
+  else manager.openManagerWindow();
 }
 
 function openNoteWindow(record) {
@@ -484,6 +503,8 @@ ipcMain.on("note:update", (e, payload) => {
 ipcMain.handle("note:setCollapsed", (e, payload) =>
   noteCollapse?.setCollapsed(e, payload),
 );
+ipcMain.on("note:resize", (e, payload) => noteCollapse?.resizeNote(e, payload));
+ipcMain.on("note:drag", (e, payload) => noteCollapse?.dragNote(e, payload));
 ipcMain.on("note:dragBubble", (e, payload) =>
   noteCollapse?.dragBubble(e, payload),
 );
@@ -492,15 +513,19 @@ ipcMain.on("note:setIgnoreMouse", (e, payload) => {
   if (
     !payload ||
     typeof payload.id !== "string" ||
-    typeof payload.ignore !== "boolean"
+    typeof payload.ignore !== "boolean" ||
+    typeof payload.recover !== "boolean"
   )
     return;
   const { id, ignore } = payload;
   const win = noteWindows.get(id);
   if (win && !win.isDestroyed() && win.webContents === e.sender)
-    win.setIgnoreMouseEvents(ignore && !store.get(id)?.collapsed, {
-      forward: true,
-    });
+    platform.setIgnoreMouseEvents(
+      win,
+      ignore && !store.get(id)?.collapsed,
+      screen,
+      payload.recover && !store.get(id)?.collapsed,
+    );
 });
 
 ipcMain.on("note:setPinned", (e, { id, pinned }) => {
@@ -709,8 +734,7 @@ if (!gotLock) {
   app.on("second-instance", (event, argv) => {
     app.whenReady().then(() => {
       if (!store || !manager) return;
-      if (argv.includes("--new-note")) createNoteNearCursor();
-      else manager.openManagerWindow();
+      handleShortcutLaunch(argv);
     });
   });
 
@@ -744,18 +768,24 @@ if (!gotLock) {
 
     if (platform.isLinux && typeof globalShortcut.on === "function") {
       globalShortcut.on("registration-resolved", (accelerator, bound) => {
-        const requested = getShortcuts().find((s) => s.scope === "global");
-        if (requested?.accelerator !== accelerator) return;
+        const requested = getShortcuts().find(
+          (s) => s.scope === "global" && s.accelerator === accelerator,
+        );
+        if (!requested) return;
         platform.setShortcutStatus(bound ? "registered" : "denied");
         manager.notifyChanged();
       });
     }
     setupTray();
-    registerFallbackShortcut(globalShortcut, () => createNoteNearCursor());
+    registerAllGlobalShortcuts();
     stopDesktopWatch = platform.watchDesktopChanges(() => {
       platform.installDesktopIntegration();
-      unregisterFallbackShortcut(globalShortcut);
-      registerFallbackShortcut(globalShortcut, () => createNoteNearCursor());
+      for (const [id, win] of noteWindows) {
+        const record = store.get(id);
+        if (record && !win.isDestroyed())
+          platform.setPinned(win, record.ghost || record.pinned !== false);
+      }
+      registerAllGlobalShortcuts();
       manager.notifyChanged();
       updateTrayMenu();
     });
@@ -765,7 +795,13 @@ if (!gotLock) {
     } else {
       applyActiveWorkspace();
       if (process.argv.includes("--new-note")) createNoteNearCursor();
+      else if (!store.all().some(noteBelongsOnScreen))
+        manager.openManagerWindow();
     }
+
+    if (process.argv.includes("--manager")) manager.openManagerWindow();
+    else if (process.argv.includes("--toggle-notes")) toggleHideAll();
+    else if (process.argv.includes("--toggle-ghost")) toggleGhostAll();
 
     screen.on("display-added", reconcileOpenWindowsAfterSystemChange);
     screen.on("display-removed", reconcileOpenWindowsAfterSystemChange);
@@ -781,7 +817,7 @@ if (!gotLock) {
 
   app.on("will-quit", () => {
     stopDesktopWatch?.();
-    unregisterFallbackShortcut(globalShortcut);
+    unregisterGlobalShortcuts(globalShortcut);
   });
 
   app.on("window-all-closed", () => {});

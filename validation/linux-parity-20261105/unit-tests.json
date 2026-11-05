@@ -1,0 +1,58 @@
+{
+  "files": [
+    {
+      "file": "test/linux.test.js",
+      "exitCode": 0,
+      "tests": 22,
+      "pass": 22,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test/noteCollapse.test.js",
+      "exitCode": 0,
+      "tests": 6,
+      "pass": 6,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test/noteWindow.test.js",
+      "exitCode": 0,
+      "tests": 10,
+      "pass": 10,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test/platform.test.js",
+      "exitCode": 0,
+      "tests": 13,
+      "pass": 6,
+      "fail": 0,
+      "skipped": 7
+    },
+    {
+      "file": "test/shortcuts.test.js",
+      "exitCode": 0,
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "test/store.test.js",
+      "exitCode": 0,
+      "tests": 44,
+      "pass": 44,
+      "fail": 0,
+      "skipped": 0
+    }
+  ],
+  "total": {
+    "tests": 107,
+    "pass": 100,
+    "fail": 0,
+    "skipped": 7
+  }
+}

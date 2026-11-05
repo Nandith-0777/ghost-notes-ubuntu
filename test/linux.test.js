@@ -9,11 +9,22 @@ const { NoteStore } = require("../store");
 function platformFor(platform, overrides = {}, env = {}) {
   const context = {
     module: { exports: {} },
-    require: (name) => overrides[name] || require(name),
-    process: { platform, env, execPath: "/test/electron" },
+    require: (name) =>
+      overrides[name] ||
+      (name === "./manager/key-combo"
+        ? require("../manager/key-combo")
+        : require(name)),
+    process: {
+      platform,
+      env,
+      execPath: "/test/electron",
+      argv: overrides.argv,
+    },
     __dirname: path.resolve(__dirname, ".."),
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
     console: { warn() {} },
   };
   vm.runInNewContext(
@@ -51,6 +62,87 @@ test("Linux defaults to XWayland for positioning and enables portal support", ()
   );
 });
 
+test("capture status distinguishes the companion plugin from black masking", () => {
+  for (const loaded of [true, false]) {
+    const p = platformFor(
+      "linux",
+      {
+        "node:child_process": {
+          execFileSync(_command, args) {
+            if (args[0] === "ghostnotes:status") {
+              if (!loaded) throw new Error("plugin is absent");
+              return JSON.stringify({ mode: "compositor-omit", frames: 5 });
+            }
+            return "ok";
+          },
+        },
+      },
+      { HYPRLAND_INSTANCE_SIGNATURE: "test" },
+    );
+    assert.equal(p.installDesktopIntegration(), true);
+    assert.equal(
+      p.runtimeStatus().capture.mode,
+      loaded ? "compositor-omit" : "compositor-mask",
+    );
+  }
+});
+
+test("compositor pointer reader handles split replies and malformed coordinates", async () => {
+  const { EventEmitter } = require("node:events");
+  for (const reply of ['{"x":120,"y":45}', '{"x":"bad","y":45}']) {
+    let request;
+    let destroyed = false;
+    const p = platformFor("linux", {
+      "node:net": {
+        createConnection() {
+          const socket = new EventEmitter();
+          socket.setTimeout = () => {};
+          socket.destroy = () => {
+            destroyed = true;
+          };
+          socket.write = (command) => {
+            request = command;
+            socket.emit("data", reply.slice(0, 6));
+            socket.emit("data", reply.slice(6));
+          };
+          setImmediate(() => socket.emit("connect"));
+          return socket;
+        },
+      },
+    });
+    const point = await p.compositorPointer({
+      XDG_RUNTIME_DIR: "/tmp",
+      HYPRLAND_INSTANCE_SIGNATURE: "test",
+    });
+    assert.equal(request, "j/cursorpos");
+    assert.equal(destroyed, true);
+    assert.equal(point?.x ?? null, reply.includes("bad") ? null : 120);
+  }
+});
+
+test("Linux ignored-input recovery stops when input is restored", async () => {
+  const p = platformFor("linux");
+  const positions = [];
+  const win = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    getBounds: () => ({ x: 100, y: 200 }),
+    setIgnoreMouseEvents() {},
+    webContents: { send: (_channel, point) => positions.push(point) },
+  };
+  p.setIgnoreMouseEvents(win, true, {
+    getCursorScreenPoint: () => ({ x: 110, y: 215 }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  p.setIgnoreMouseEvents(win, false);
+  assert.ok(positions.length > 0);
+  assert.equal(positions[0].x, 10);
+  assert.equal(positions[0].y, 15);
+  const count = positions.length;
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(positions.length, count);
+});
+
 test("explicit backend, keychain and feature choices are preserved", () => {
   const platform = platformFor("linux");
   const app = fakeApp({
@@ -60,6 +152,34 @@ test("explicit backend, keychain and feature choices are preserved", () => {
   platform.configureApp(app, { DISPLAY: ":0" });
   assert.equal(platform.runtimeStatus().backend, "wayland");
   assert.equal(app.switches.get("password-store"), "kwallet6");
+});
+
+test("packaged launches override inherited Wayland defaults but preserve explicit CLI overrides", () => {
+  for (const explicit of [false, true]) {
+    const p = platformFor("linux", {
+      argv: explicit ? ["electron", "--ozone-platform=wayland"] : ["electron"],
+    });
+    const app = fakeApp({ "ozone-platform": "wayland" });
+    p.configureApp(app, { DISPLAY: ":1", OZONE_PLATFORM: "wayland" });
+    assert.equal(p.runtimeStatus().backend, explicit ? "wayland" : "x11");
+  }
+});
+
+test("an already initialized inherited Wayland backend relaunches with early X11 flags", () => {
+  const p = platformFor("linux", { argv: ["ghost-notes", "--new-note"] });
+  const app = fakeApp({ "ozone-platform": "wayland" });
+  let args, exitCode;
+  app.relaunch = (value) => {
+    args = value.args;
+  };
+  app.exit = (value) => {
+    exitCode = value;
+  };
+  p.configureApp(app, { DISPLAY: ":1" });
+  assert.ok(args.includes("--new-note"));
+  assert.ok(args.includes("--ozone-platform=x11"));
+  assert.equal(exitCode, 0);
+  assert.equal(app.switches.get("ozone-platform"), "wayland");
 });
 
 test("non-Linux initialization does not change desktop switches", () => {
@@ -320,4 +440,171 @@ test("desktop watcher does nothing outside a Hyprland Linux session", () => {
     HYPRLAND_INSTANCE_SIGNATURE: "sample",
   });
   assert.doesNotThrow(stop);
+});
+
+test("ghost pointer coordinates account for force-zero-scaling XWayland geometry", async (t) => {
+  const { EventEmitter } = require("node:events");
+  const p = platformFor(
+    "linux",
+    {
+      "node:child_process": {
+        execFileSync: () => JSON.stringify({ mode: "compositor-omit" }),
+      },
+      "node:net": {
+        createConnection() {
+          const socket = new EventEmitter();
+          socket.setTimeout = () => {};
+          socket.destroy = () => {};
+          socket.write = (command) =>
+            socket.emit(
+              "data",
+              JSON.stringify(
+                command === "j/cursorpos"
+                  ? { x: 150, y: 280 }
+                  : { x: 100, y: 200, width: 200, height: 100 },
+              ),
+            );
+          setImmediate(() => socket.emit("connect"));
+          return socket;
+        },
+      },
+    },
+    { HYPRLAND_INSTANCE_SIGNATURE: "test", XDG_RUNTIME_DIR: "/tmp" },
+  );
+  p.runtimeStatus();
+  const positions = [];
+  const native = Buffer.alloc(4);
+  native.writeUInt32LE(42);
+  const win = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    getNativeWindowHandle: () => native,
+    getBounds: () => ({ x: 9999, y: 9999, width: 250, height: 125 }),
+    setIgnoreMouseEvents() {},
+    webContents: { send: (_channel, point) => positions.push(point) },
+  };
+  t.after(() => p.setIgnoreMouseEvents(win, false));
+  p.setIgnoreMouseEvents(win, true, {
+    getCursorScreenPoint: () => ({ x: -1, y: -1 }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.ok(positions.length > 0);
+  assert.equal(positions[0].x, 62.5);
+  assert.equal(positions[0].y, 100);
+});
+
+test("ghost recovery keeps tracking after toolbar hover restores input", async (t) => {
+  const p = platformFor("linux");
+  const positions = [];
+  let cursor = { x: 110, y: 215 };
+  const win = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    getBounds: () => ({ x: 100, y: 200 }),
+    setIgnoreMouseEvents() {},
+    webContents: { send: (_channel, point) => positions.push(point) },
+  };
+  const screen = { getCursorScreenPoint: () => cursor };
+  t.after(() => p.setIgnoreMouseEvents(win, false));
+  p.setIgnoreMouseEvents(win, false, screen, true);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  cursor = { x: 120, y: 300 };
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.ok(
+    positions.some((point) => point.y === 100),
+    "Body movement must be detected without renderer mousemove events",
+  );
+  p.setIgnoreMouseEvents(win, false, screen, false);
+  const count = positions.length;
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(positions.length, count);
+});
+
+test("compositor input registration retries unmapped saved ghost notes and clears on exit", async () => {
+  const { EventEmitter } = require("node:events");
+  const commands = [];
+  let attempts = 0;
+  const p = platformFor(
+    "linux",
+    {
+      "node:net": {
+        createConnection() {
+          const socket = new EventEmitter();
+          socket.setTimeout = () => {};
+          socket.destroy = () => {};
+          socket.write = (command) => {
+            commands.push(command);
+            const blocked = command.split(" ")[2] === "1";
+            socket.emit(
+              "data",
+              JSON.stringify(
+                attempts++ === 0
+                  ? { x: 0, y: 0, mapped: false }
+                  : { x: 0, y: 0, blocked },
+              ),
+            );
+          };
+          setImmediate(() => socket.emit("connect"));
+          return socket;
+        },
+      },
+    },
+    { HYPRLAND_INSTANCE_SIGNATURE: "test", XDG_RUNTIME_DIR: "/tmp" },
+  );
+  const native = Buffer.alloc(4);
+  native.writeUInt32LE(42);
+  const win = {
+    isDestroyed: () => false,
+    isVisible: () => false,
+    getNativeWindowHandle: () => native,
+    setIgnoreMouseEvents() {},
+  };
+  p.setIgnoreMouseEvents(win, true, {}, true);
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  assert.equal(
+    commands.length,
+    2,
+    "Retry after the note becomes mapped, without waiting for a runtime status request",
+  );
+  assert.equal(commands[1], "j/ghostnotes:input 42 1 1");
+  p.setIgnoreMouseEvents(win, false);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(commands.at(-1), "j/ghostnotes:input 42 0 0");
+});
+
+test("compositor actions have independent owners and command-line actions", () => {
+  const lua = [];
+  const p = platformFor(
+    "linux",
+    {
+      "node:child_process": {
+        execFileSync(command, args) {
+          if (args[0] === "binds") return "[]";
+          lua.push(args[1]);
+          return "ok";
+        },
+      },
+    },
+    { HYPRLAND_INSTANCE_SIGNATURE: "test-session" },
+  );
+  const app = fakeApp();
+  app.getAppPath = () => "/test/ghost-notes";
+  app.isPackaged = false;
+  p.configureApp(app, { DISPLAY: ":0" });
+  assert.equal(
+    p.registerCompositorShortcut("Ctrl+Alt+Shift+M", "openManager"),
+    true,
+  );
+  assert.equal(
+    p.registerCompositorShortcut("Ctrl+Alt+Shift+H", "toggleHideAll"),
+    true,
+  );
+  assert.match(lua[0], /--manager/);
+  assert.doesNotMatch(lua[0], /--new-note/);
+  assert.match(lua[1], /--toggle-notes/);
+  p.unregisterCompositorShortcut("openManager");
+  assert.match(lua[2], /:openManager/);
+  assert.doesNotMatch(lua[2], /:toggleHideAll/);
+  p.unregisterCompositorShortcut("toggleHideAll");
+  assert.match(lua[3], /:toggleHideAll/);
 });

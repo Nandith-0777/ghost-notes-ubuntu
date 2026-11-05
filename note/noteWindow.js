@@ -51,7 +51,7 @@ function createNoteWindow(record, { onMoved, onResized, onClosed } = {}) {
   if (platform.isLinux) {
     win.on("page-title-updated", (event) => event.preventDefault());
   }
-  platform.setPinned(win, record.pinned !== false);
+  platform.setPinned(win, record.ghost || record.pinned !== false);
 
   if (platform.isWindows) {
     win.on("show", () => applyContentProtection(win));

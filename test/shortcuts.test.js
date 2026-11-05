@@ -168,7 +168,7 @@ test("the legend describes every shortcut and formats it for this platform", () 
 
 test("the legend lists the global recovery shortcut alongside the app ones", () => {
   const global = getShortcuts().filter((s) => s.scope === "global");
-  assert.equal(global.length, 1);
+  assert.equal(global.length, 4);
   assert.equal(global[0].accelerator, FALLBACK_BINDING);
 });
 
@@ -239,4 +239,125 @@ test("changing a global shortcut releases the previous accelerator", () => {
     shortcuts.unregisterFallbackShortcut(shortcutAPI);
     shortcuts.applyOverrides({});
   }
+});
+
+test("all global actions register, dispatch independently, and release custom keys", () => {
+  const shortcuts = require("../manager/shortcuts");
+  const registered = new Map();
+  const api = {
+    register: (key, handler) => {
+      registered.set(key, handler);
+      return true;
+    },
+    unregister: (key) => registered.delete(key),
+  };
+  const calls = [];
+  const actions = Object.fromEntries(
+    ["newNote", "openManager", "toggleHideAll", "toggleGhostAll"].map(
+      (action) => [action, () => calls.push(action)],
+    ),
+  );
+  try {
+    const results = shortcuts.registerGlobalShortcuts(api, actions);
+    assert.equal(Object.values(results).every(Boolean), true);
+    assert.equal(registered.size, 4);
+    for (const handler of registered.values()) handler();
+    assert.deepEqual(calls, [
+      "newNote",
+      "openManager",
+      "toggleHideAll",
+      "toggleGhostAll",
+    ]);
+    shortcuts.applyOverrides({ openManagerAnywhere: "Ctrl+Alt+Shift+J" });
+    shortcuts.registerGlobalShortcuts(api, actions);
+    assert.equal(registered.size, 4);
+    assert.equal(registered.has("Ctrl+Alt+Shift+J"), true);
+    assert.equal(registered.has("CommandOrControl+Alt+Shift+M"), false);
+  } finally {
+    shortcuts.unregisterGlobalShortcuts(api);
+    shortcuts.applyOverrides({});
+  }
+  assert.equal(registered.size, 0);
+});
+
+test("an unavailable global shortcut is shown in the legend", () => {
+  const shortcuts = require("../manager/shortcuts");
+  const api = { register: (key) => !key.endsWith("+H"), unregister() {} };
+  try {
+    const results = shortcuts.registerGlobalShortcuts(api, {
+      newNote() {},
+      openManager() {},
+      toggleHideAll() {},
+      toggleGhostAll() {},
+    });
+    assert.equal(results.toggleHideAllAnywhere, false);
+    assert.equal(
+      shortcuts.getShortcuts().find((s) => s.id === "toggleHideAllAnywhere")
+        .registration,
+      "unavailable",
+    );
+    assert.equal(results.openManagerAnywhere, true);
+  } finally {
+    shortcuts.unregisterGlobalShortcuts(api);
+  }
+});
+
+test("custom app shortcuts honor arbitrary modifiers and non-letter keys", () => {
+  const shortcuts = require("../manager/shortcuts");
+  try {
+    shortcuts.applyOverrides({
+      newNote: "Alt+F8",
+      openManager: "Super+Space",
+      toggleHideAll: "Ctrl+Down",
+      toggleGhostAll: "Shift+F24",
+    });
+    for (const [input, expected] of [
+      [{ key: "F8", code: "F8", alt: true }, "newNote"],
+      [{ key: " ", code: "Space", meta: true }, "openManager"],
+      [{ key: "ArrowDown", code: "ArrowDown", control: true }, "toggleHideAll"],
+      [{ key: "F24", code: "F24", shift: true }, "toggleGhostAll"],
+    ])
+      assert.equal(
+        shortcuts.shortcutNameForInput({ type: "keyDown", ...input }),
+        expected,
+      );
+    assert.equal(
+      shortcuts.shortcutNameForInput({
+        type: "keyDown",
+        key: "F8",
+        code: "F8",
+        alt: true,
+        shift: true,
+      }),
+      null,
+    );
+    assert.ok(
+      shortcuts
+        .validateShortcut("newNote", "Super+Space")
+        .error.includes("Already assigned"),
+    );
+    assert.equal(
+      shortcuts.validateShortcut("newNote", "Alt+F8").accelerator,
+      "Alt+F8",
+    );
+    assert.ok(shortcuts.validateShortcut("missing", "Ctrl+X").error);
+    for (const bare of ["N", "F8", "Space"])
+      assert.ok(shortcuts.validateShortcut("newNote", bare).error);
+  } finally {
+    shortcuts.applyOverrides({});
+  }
+});
+
+test("recording in a manager window suppresses its app shortcuts", () => {
+  const shortcuts = require("../manager/shortcuts");
+  const win = { webContents: new EventEmitter() };
+  let calls = 0;
+  shortcuts.registerShortcuts(win, { newNote: () => calls++ });
+  const event = { preventDefault() {} };
+  shortcuts.setShortcutCapture(win, true);
+  win.webContents.emit("before-input-event", event, shortcutInput("n"));
+  assert.equal(calls, 0);
+  shortcuts.setShortcutCapture(win, false);
+  win.webContents.emit("before-input-event", event, shortcutInput("n"));
+  assert.equal(calls, 1);
 });

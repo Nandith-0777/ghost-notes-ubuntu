@@ -9,5 +9,7 @@ ghost_notes_overlay_rule = hl.window_rule({
     initial_title = "^Ghost Notes Note$",
   },
   float = true,
+  -- Pointer-driven bounds must not compete with compositor size animations.
+  no_anim = true,
   no_screen_share = true,
 })

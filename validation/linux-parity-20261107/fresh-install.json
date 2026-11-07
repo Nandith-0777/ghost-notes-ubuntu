@@ -1,0 +1,32 @@
+{
+  "environment": {
+    "omarchy": "4.5.0-3",
+    "hyprland": "0.56.2",
+    "commit": "efb50993780079460b0cbed1363e2166a2de1d9f"
+  },
+  "scope": "Real clean app installation on the existing laptop, with original notes privately backed up. Shared OS packages retained.",
+  "results": [
+    "Published GitHub command cloned an independent installed checkout",
+    "Locked Electron runtime installed outside the plugin tree",
+    "C++ companion built against actual matching headers",
+    "Capture companion loaded and reported compositor-omit",
+    "Hyprland configuration validation passed",
+    "Bar enabled, launcher installed, login startup configured",
+    "App and Notes Manager opened with a fresh profile",
+    "Global new note and manager worked from a separate focused app",
+    "Global hide/show worked from a separate focused app",
+    "Ghost toggle shortcut dispatch completed",
+    "Corrected reinstall stopped/restarted its own app and restored capture companion",
+    "Exactly one autostart block and one Ghost Notes config source remained"
+  ],
+  "fixed_during_trial": [
+    "Recognize Electron process-title argv rewriting",
+    "Explicitly load companion when config reload does not autoload it",
+    "Restore previously active companion after failed reinstall"
+  ],
+  "limits": [
+    "No new Meet/Zoom or recording session in this clean-install trial",
+    "Second laptop not tested",
+    "Chromium graphics warnings appeared without failure of tested operations"
+  ]
+}

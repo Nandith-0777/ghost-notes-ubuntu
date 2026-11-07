@@ -1,0 +1,19 @@
+{
+  "profile": "disposable /tmp profiles only",
+  "results": [
+    "Native ghost routing sends no renderer pointer polling events",
+    "Body clicks pass through to the public background fixture",
+    "Toolbar recovers and ghost-off restores editing",
+    "Repeated physical ghost-button clicks toggle correctly",
+    "Cursor responds after repeated toggling",
+    "Held-button ghost-mode dragging moves the note",
+    "Ghost-mode resize handle changes window size",
+    "Unit regressions cover asynchronous pinning, native ownership, and capture status caching"
+  ],
+  "limitations": "Controlled pointer checks and user confirmation cover this laptop. Meeting verification is user-reported, not an independently reproduced cross-platform test.",
+  "user_confirmation": {
+    "date": "2026-11-07",
+    "mouse_sticking": "User confirms fixed during normal use.",
+    "meetings": "User reports Google Meet and Zoom verified on this laptop. Capture modes, client versions, and recordings were not supplied."
+  }
+}

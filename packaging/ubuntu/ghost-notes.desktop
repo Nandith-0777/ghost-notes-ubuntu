@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ghost Notes
+Comment=Private floating notes for Ubuntu screen sharing
+Exec=ghost-notes --manager
+Icon=ghost-notes
+Terminal=false
+Categories=Office;Utility;
+StartupWMClass=com.invisiblenotes.app

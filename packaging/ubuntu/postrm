@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+case "$1" in remove|purge|abort-install)
+  library=/usr/lib/x86_64-linux-gnu/libmutter-14.so.0.0.0
+  backup=/var/lib/ghost-notes/stock/libmutter-14.so.0.0.0
+  owner=$(dpkg-divert --listpackage "$library")
+  if [ "$owner" = ghost-notes-ubuntu ]; then
+    # An incomplete installation may have diverted the stock file before failing.
+    # Never discard an unverified replacement after the helper has been removed.
+    if [ ! -e "$library" ] && [ -e "$backup" ]; then
+      dpkg-divert --package ghost-notes-ubuntu --divert "$backup" --rename --remove "$library"
+      rm -f /var/lib/ghost-notes/mutter-capture.json
+    else
+      echo 'Capture library still diverted; reinstall Ghost Notes to recover safely.' >&2
+      exit 1
+    fi
+  fi
+  rmdir /var/lib/ghost-notes/stock 2>/dev/null || true
+  rmdir /var/lib/ghost-notes 2>/dev/null || true
+;; esac

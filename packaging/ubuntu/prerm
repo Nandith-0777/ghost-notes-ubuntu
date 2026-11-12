@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+case "$1" in remove|deconfigure)
+  python3 /usr/lib/ghost-notes-ubuntu/capture-install.py disable
+;; esac

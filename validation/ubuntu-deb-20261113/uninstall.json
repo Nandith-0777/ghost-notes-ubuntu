@@ -1,0 +1,7 @@
+{
+  "reinstall": true,
+  "uninstallRestoresStockCompositor": true,
+  "uninstallRemovesCaptureOverride": true,
+  "uninstallPreservesNotes": true,
+  "nodeOrNpmRequired": false
+}

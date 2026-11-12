@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+case "$1" in install|upgrade)
+  . /etc/os-release
+  if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 24.04 ] || [ "$(dpkg --print-architecture)" != amd64 ]; then
+    echo 'This Ghost Notes preview requires Ubuntu 24.04 on an amd64 computer.' >&2
+    exit 1
+  fi
+  expected=46.2-1ubuntu0.24.04.18
+  actual=$(dpkg-query -W -f='${Version}' libmutter-14-0)
+  if [ "$actual" != "$expected" ]; then
+    echo "Unsupported Ubuntu compositor version: $actual (requires $expected). No compositor changes made." >&2
+    exit 1
+  fi
+  owner=$(dpkg-divert --listpackage /usr/lib/x86_64-linux-gnu/libmutter-14.so.0.0.0)
+  if [ -z "$owner" ]; then
+    changes=$(dpkg --verify libmutter-14-0)
+    case "$changes" in *'/usr/lib/x86_64-linux-gnu/libmutter-14.so.0.0.0'*)
+      echo 'Ubuntu compositor was modified outside this installer; refusing replacement.' >&2
+      exit 1
+    ;; esac
+  fi
+  if [ -n "$owner" ] && [ "$owner" != ghost-notes-ubuntu ]; then
+    echo 'Another integration modifies Mutter. Remove that integration first.' >&2
+    exit 1
+  fi
+;; esac

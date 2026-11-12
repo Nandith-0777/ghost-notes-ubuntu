@@ -1,0 +1,21 @@
+{
+  "runtime": {
+    "platform": "linux",
+    "backend": "x11",
+    "capture": {
+      "mode": "compositor-omit",
+      "message": "Experimental GNOME/Mutter capture exclusion is active for Mutter/PipeWire screen sharing. Direct X11/KMS capture and screenshots are outside its scope.",
+      "provider": "gnome-mutter"
+    },
+    "storage": {
+      "encrypted": true,
+      "backend": "gnome_libsecret"
+    },
+    "globalShortcut": "registered"
+  },
+  "launch": true,
+  "shareToggle": true,
+  "ghostHelper": true,
+  "noteSaved": true,
+  "nodeInstalled": false
+}

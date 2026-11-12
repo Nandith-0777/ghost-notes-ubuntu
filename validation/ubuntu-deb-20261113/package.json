@@ -1,0 +1,13 @@
+{
+  "package": "ghost-notes-ubuntu_1.2.2+ubuntu24.04.2_amd64.deb",
+  "sha256": "f7ab902506d38c03643fef05fb5cb9fe85ce6a894fc5261bced0fb48c7d8d683",
+  "bytes": 109443468,
+  "architecture": "amd64",
+  "mutterVersion": "46.2-1ubuntu0.24.04.18",
+  "realMouseGhostRecovery": true,
+  "incompatibleVersionRejected": true,
+  "graphicalInstaller": "snap-store_snap-store.desktop",
+  "transactionTestsPassed": 8,
+  "appTestsPassed": 132,
+  "appTestsSkipped": 7
+}

@@ -25,7 +25,7 @@ An experimental Ubuntu integration for [Ghost Notes / Invisible Notes](https://g
 - **Storage:** the normal profile uses GNOME libsecret encryption.
 - **Regression tests:** 132 passed, 7 skipped, 0 failed.
 
-**This is a development prototype, not a universal Ubuntu installer.** Other Ubuntu releases and Mutter revisions are not yet supported. Zoom, physical GPU capture paths, multiple monitors and fractional scaling still need testing. Direct X11/KMS capture and ordinary screenshots bypass this exclusion. The Notes Manager remains visible.
+**This is an experimental preview, not a universal Ubuntu installer.** Other Ubuntu releases and Mutter revisions are not yet supported. Zoom, physical GPU capture paths, multiple monitors and fractional scaling still need testing. Direct X11/KMS capture and ordinary screenshots bypass this exclusion. The Notes Manager remains visible.
 
 ## See the difference
 
@@ -36,6 +36,18 @@ These images use only a synthetic public note and test background.
 | ![Private note visible locally](validation/ubuntu-gnome-20261112/local-display.png) | ![Capture showing the background behind the note](validation/ubuntu-gnome-20261112/shared-frame.png) |
 
 [Read the capture tests, pixel comparisons and rollback results](validation/ubuntu-gnome-20261112/README.md).
+
+## Ubuntu installer preview
+
+An amd64 `.deb` installer has passed VM installation testing for the exact Ubuntu/Mutter target
+above. It bundles Electron and the prebuilt invisibility companion, installs
+runtime dependencies through Ubuntu’s package manager, and adds Ghost Notes to
+the app launcher. No Node.js, npm, Git or compiler is required on the target
+machine. Restart Ubuntu once after installation. The preview refuses unsupported
+compositor versions and restores the original library on removal.
+
+[Installer build, install and removal details](packaging/ubuntu/README.md).
+[Clean-VM package test results](validation/ubuntu-deb-20261113/README.md).
 
 ## Run the app for development
 
@@ -50,7 +62,7 @@ npm start
 
 ## Enable the experimental integration
 
-Read the [GNOME integration guide](integrations/gnome-capture/README.md) and [rollback instructions](integrations/gnome-capture/ROLLBACK.md). Current build/activation scripts deliberately target the dedicated development VM; they are not an installer for other users’ machines. The stock library is retained, and rollback was tested.
+Read the [GNOME integration guide](integrations/gnome-capture/README.md) and [rollback instructions](integrations/gnome-capture/ROLLBACK.md). The source build/activation scripts target the dedicated development VM. The binary package uses separate, package-managed installation and removal hooks. The stock library is retained, and rollback was tested.
 
 Ubuntu uses a modified Mutter compositor that omits private note windows from marked screen-capture paints while drawing them normally on your display. It also avoids copying the physical screen framebuffer into the capture. The app verifies the companion’s version, library hash and active session before reporting protection available. A compositor update requires rebuilding and revalidation.
 

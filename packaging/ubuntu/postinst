@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+case "$1" in configure)
+  python3 /usr/lib/ghost-notes-ubuntu/capture-install.py enable
+  chmod 4755 /opt/ghost-notes-ubuntu/electron/chrome-sandbox
+  echo 'Ghost Notes installed. Save your work and restart Ubuntu before opening it.'
+;; esac

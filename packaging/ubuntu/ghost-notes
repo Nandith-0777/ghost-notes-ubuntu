@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+if [ "${XDG_SESSION_TYPE:-}" != wayland ]; then
+  zenity --error --title='Ghost Notes' --text='This preview requires the Ubuntu Wayland desktop. Choose Ubuntu at the login screen.' || true
+  exit 1
+fi
+case "${XDG_CURRENT_DESKTOP:-}" in *GNOME*|*gnome*) ;; *)
+  zenity --error --title='Ghost Notes' --text='This preview supports the default Ubuntu GNOME desktop.' || true
+  exit 1
+;; esac
+status=$(python3 /opt/ghost-notes-ubuntu/app/integrations/gnome-capture/status.py)
+case "$status" in *'"mode": "compositor-omit"'*) ;; *)
+  zenity --warning --title='Finish installing Ghost Notes' --text='Save your work and restart Ubuntu to finish installing Ghost Notes. Then open Ghost Notes again. If this message remains after restarting, this Ubuntu version needs an updated Ghost Notes installer.' || true
+  exit 1
+;; esac
+exec /opt/ghost-notes-ubuntu/electron/electron /opt/ghost-notes-ubuntu/app --ozone-platform=x11 --class=com.invisiblenotes.app "$@"

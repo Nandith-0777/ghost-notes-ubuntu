@@ -758,3 +758,48 @@ test("GNOME X11 sessions never claim PipeWire-only capture protection", () => {
   assert.equal(p.runtimeStatus().capture.mode, "unsupported");
   assert.equal(queries, 0);
 });
+
+test("GNOME ghost mode preserves toolbar input without cursor polling", () => {
+  const writes = [];
+  const calls = [];
+  const events = {};
+  const child = {
+    on() {},
+    stdin: {
+      on() {},
+      write: (line) => writes.push(JSON.parse(line)),
+      end() {},
+    },
+  };
+  const p = platformFor(
+    "linux",
+    {
+      "node:child_process": {
+        spawn: (_bin, args) => {
+          assert.ok(args[0].endsWith("input-region.py"));
+          assert.equal(args[1], "42");
+          return child;
+        },
+      },
+    },
+    { XDG_SESSION_TYPE: "wayland", XDG_CURRENT_DESKTOP: "ubuntu:GNOME" },
+  );
+  const win = {
+    getNativeWindowHandle: () => Buffer.from([42, 0, 0, 0]),
+    setIgnoreMouseEvents: (value) => calls.push(value),
+    once: (event, callback) => {
+      events[event] = callback;
+    },
+    isDestroyed: () => false,
+  };
+  p.setIgnoreMouseEvents(win, true, {}, true);
+  p.setIgnoreMouseEvents(win, false, {}, true);
+  p.setIgnoreMouseEvents(win, true, {}, true);
+  p.setIgnoreMouseEvents(win, false, {}, false);
+  assert.deepEqual(calls, [false]);
+  assert.deepEqual(
+    writes.map((value) => value.active),
+    [true, false],
+  );
+  assert.equal(typeof events.closed, "function");
+});

@@ -929,3 +929,31 @@ body.dark .bar #ghost:hover {
   background: #c2410c;
   box-shadow: 0 0 0 1px #c2410c;
 }
+
+/* Toggle state remains distinct while hovered and never moves the icon. */
+.bar #ghost,
+.bar #pin {
+  transition: none;
+}
+.bar #ghost:not([aria-pressed="true"]):hover {
+  color: #6d3bd1;
+  background: #e4d8fa;
+}
+body.dark .bar #ghost:not([aria-pressed="true"]):hover {
+  color: #d5c0ff;
+  background: #493763;
+}
+.bar #pin {
+  opacity: 1;
+  color: #797680;
+  background: transparent;
+}
+.bar #pin.active {
+  color: #fff;
+  background: #3169ad;
+}
+.bar #pin:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}

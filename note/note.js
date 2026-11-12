@@ -140,7 +140,7 @@ function applyGhost() {
   // While ghosted, the note is always forced on top (main process) so it
   // stays reachable — the pin toggle has no effect until ghost ends.
   pinBtn.disabled = state.ghost;
-  pinBtn.style.opacity = state.ghost ? "0.25" : "";
+  applyPinned();
 }
 
 function setGhost(on) {
@@ -180,11 +180,13 @@ window.notes.onPointerPosition(({ x, y }) => {
 // whatever's currently focused. The main process owns the actual
 // setAlwaysOnTop call; this just reflects/requests the state.
 function applyPinned() {
-  pinBtn.classList.toggle("active", state.pinned);
-  pinBtn.setAttribute("aria-pressed", String(state.pinned));
-  pinBtn.title = state.pinned
-    ? "Pinned: stays on top when you switch apps"
-    : "Not pinned: can be covered by other windows";
+  pinBtn.classList.toggle("active", state.ghost || state.pinned);
+  pinBtn.setAttribute("aria-pressed", String(state.ghost || state.pinned));
+  pinBtn.title = state.ghost
+    ? "Kept on top during ghost mode · Turn ghost mode off to change pin"
+    : state.pinned
+      ? "Pinned: stays on top when you switch apps"
+      : "Not pinned: can be covered by other windows";
 }
 
 function setPinned(on) {

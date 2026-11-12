@@ -2,7 +2,7 @@ const shortcutKeys = require("./manager/key-combo");
 const isMac = process.platform === "darwin";
 const isWindows = process.platform === "win32";
 const isLinux = process.platform === "linux";
-const { execFile, execFileSync } = require("node:child_process");
+const { execFile, execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const net = require("node:net");
@@ -25,6 +25,7 @@ const pointerRecovery = new WeakMap();
 const inputUpdates = new WeakMap();
 const nativeInputOwners = new WeakSet();
 const pinnedWindows = new WeakMap();
+const gnomeInputRegions = new WeakMap();
 
 function syncCompositorPin(win, pinned) {
   if (
@@ -213,6 +214,44 @@ function syncCompositorInput(win, ignore, enabled) {
 }
 
 function setIgnoreMouseEvents(win, ignore, screen, recover = ignore) {
+  if (
+    isLinux &&
+    process.env.XDG_SESSION_TYPE === "wayland" &&
+    /gnome/i.test(process.env.XDG_CURRENT_DESKTOP || "") &&
+    linuxBackend !== "wayland" &&
+    win.getNativeWindowHandle
+  ) {
+    let owner = gnomeInputRegions.get(win);
+    if (!owner && recover) {
+      const child = spawn(
+        "python3",
+        [
+          path.join(__dirname, "integrations/gnome-capture/input-region.py"),
+          String(win.getNativeWindowHandle().readUInt32LE(0)),
+        ],
+        { stdio: ["pipe", "ignore", "ignore"] },
+      );
+      owner = { child, active: null };
+      gnomeInputRegions.set(win, owner);
+      const restore = () => {
+        if (gnomeInputRegions.get(win) !== owner) return;
+        gnomeInputRegions.delete(win);
+        if (!win.isDestroyed()) win.setIgnoreMouseEvents(false);
+      };
+      child.on("error", restore);
+      child.on("exit", restore);
+      child.stdin.on("error", restore);
+      win.once("closed", () => child.stdin.end());
+      win.setIgnoreMouseEvents(false);
+    }
+    if (owner) {
+      if (owner.active !== recover) {
+        owner.active = recover;
+        owner.child.stdin.write(JSON.stringify({ active: recover }) + "\n");
+      }
+      return;
+    }
+  }
   const native =
     isLinux &&
     compositorOmit &&

@@ -33,3 +33,9 @@ Values are different pixels within the note region. Zero means the capture exact
 A live Google Meet/Zoom call inside Ubuntu still needs manual testing. Physical GPU/DMA-BUF capture, multiple monitors, fractional scaling and explicit note-window streams have not been independently tested. Screenshots and direct X11/KMS capture are outside this integration’s scope. This is a VM prototype for the exact Mutter version above, not a general Ubuntu installer.
 
 Implementation, activation and rollback instructions: [GNOME companion](../../integrations/gnome-capture/README.md).
+
+## Ghost-mode input follow-up
+
+After the manual Google Meet test succeeded, an Ubuntu toolbar recovery issue was reported. GNOME/XWayland now uses an X Shape input region instead of relying on Electron cursor polling: the 30-pixel toolbar and 6-pixel resize edges remain interactive while the body passes clicks through. Opening a toolbar menu or leaving ghost mode restores the full input region. A companion process updates the region when the window size changes and restores full input when stopped.
+
+Verified real XWayland input regions in the VM using a disposable window: toolbar and resize edge included, body excluded, and full input restored across repeated on/off changes. Updated app regression suite: 132 passed, 7 skipped, 0 failed. Button states now use steady colours; the pin indicates that ghost mode keeps the note on top and explains why pin changes are temporarily unavailable.

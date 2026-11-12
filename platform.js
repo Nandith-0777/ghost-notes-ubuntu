@@ -13,6 +13,7 @@ const NOTE_TITLE = "Ghost Notes Note";
 let linuxBackend = null;
 let compositorMask = false;
 let compositorOmit = false;
+let compositorProvider = null;
 let captureStatusChecked = false;
 let storageStatus = { encrypted: false, backend: "unavailable" };
 let shortcutStatus = "not-registered";
@@ -571,6 +572,7 @@ function runtimeStatus() {
             : "unsupported"
         : "os-content-protection",
       message: captureMessage,
+      provider: compositorProvider,
     },
     storage: { ...storageStatus },
     globalShortcut: shortcutStatus,
@@ -733,24 +735,50 @@ function setPinned(win, pinned) {
 function refreshCaptureStatus() {
   captureStatusChecked = true;
   compositorOmit = false;
-  if (!isLinux || !process.env.HYPRLAND_INSTANCE_SIGNATURE) return;
+  compositorProvider = null;
+  if (!isLinux) return;
   try {
-    const status = JSON.parse(
-      execFileSync("hyprctl", ["ghostnotes:status", "-j"], {
-        encoding: "utf8",
-        timeout: 1500,
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
-    );
-    compositorOmit = status.mode === "compositor-omit";
+    if (process.env.HYPRLAND_INSTANCE_SIGNATURE) {
+      const status = JSON.parse(
+        execFileSync("hyprctl", ["ghostnotes:status", "-j"], {
+          encoding: "utf8",
+          timeout: 1500,
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+      );
+      compositorOmit = status.mode === "compositor-omit";
+      if (compositorOmit) compositorProvider = "hyprland";
+    } else if (
+      process.env.XDG_SESSION_TYPE === "wayland" &&
+      /gnome/i.test(process.env.XDG_CURRENT_DESKTOP || "")
+    ) {
+      const status = JSON.parse(
+        execFileSync(
+          "python3",
+          [path.join(__dirname, "integrations/gnome-capture/status.py")],
+          {
+            encoding: "utf8",
+            timeout: 1500,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        ),
+      );
+      compositorOmit =
+        status.protocol === 1 &&
+        status.provider === "gnome-mutter" &&
+        status.mode === "compositor-omit";
+      if (compositorOmit) compositorProvider = "gnome-mutter";
+    }
   } catch {
-    /* Recheck at desktop initialization/reload, never during pointer handling. */
+    /* Fail closed on inactive companions or mismatched system updates. */
   }
 }
 
 function captureExclusionCaveat() {
   if (isLinux) {
     if (!captureStatusChecked) refreshCaptureStatus();
+    if (compositorOmit && compositorProvider === "gnome-mutter")
+      return "Experimental GNOME/Mutter capture exclusion is active for Mutter/PipeWire screen sharing. Direct X11/KMS capture and screenshots are outside its scope.";
     if (compositorOmit)
       return "Protected notes are omitted from compositor-managed screen captures by the Ghost Notes Hyprland plugin. Direct GPU/KMS and X11 capture bypass this protection. Other desktops require their own integration.";
     return compositorMask

@@ -699,3 +699,62 @@ test("sharing waits for mapping and a newer privacy choice cancels stale sharing
   callbacks[1](null, '{"width":300}');
   assert.deepEqual(titles, ["Ghost Notes Note", "Ghost Notes Note — Shared"]);
 });
+
+test("GNOME protection requires a verified companion and reports its actual provider", () => {
+  for (const reply of [
+    { protocol: 1, provider: "gnome-mutter", mode: "compositor-omit" },
+    { protocol: 2, provider: "gnome-mutter", mode: "compositor-omit" },
+    { protocol: 1, provider: "gnome-mutter", mode: "unsupported" },
+  ]) {
+    let queries = 0;
+    const p = platformFor(
+      "linux",
+      {
+        "node:child_process": {
+          execFileSync(command, args) {
+            assert.equal(command, "python3");
+            assert.ok(args[0].endsWith("gnome-capture/status.py"));
+            queries++;
+            return JSON.stringify(reply);
+          },
+        },
+      },
+      { XDG_SESSION_TYPE: "wayland", XDG_CURRENT_DESKTOP: "ubuntu:GNOME" },
+    );
+    const expected = reply.protocol === 1 && reply.mode === "compositor-omit";
+    assert.equal(
+      p.runtimeStatus().capture.mode,
+      expected ? "compositor-omit" : "unsupported",
+    );
+    assert.equal(
+      p.runtimeStatus().capture.provider,
+      expected ? "gnome-mutter" : null,
+    );
+    if (expected)
+      assert.match(p.captureExclusionCaveat(), /Experimental GNOME/);
+    p.runtimeStatus();
+    assert.equal(
+      queries,
+      1,
+      "Capture queries must stay off the per-note update path",
+    );
+  }
+});
+
+test("GNOME X11 sessions never claim PipeWire-only capture protection", () => {
+  let queries = 0;
+  const p = platformFor(
+    "linux",
+    {
+      "node:child_process": {
+        execFileSync() {
+          queries++;
+          throw Error("unexpected probe");
+        },
+      },
+    },
+    { XDG_SESSION_TYPE: "x11", XDG_CURRENT_DESKTOP: "GNOME" },
+  );
+  assert.equal(p.runtimeStatus().capture.mode, "unsupported");
+  assert.equal(queries, 0);
+});

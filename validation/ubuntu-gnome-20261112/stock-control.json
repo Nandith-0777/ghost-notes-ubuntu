@@ -1,0 +1,28 @@
+{
+  "backend": "Mutter ScreenCast / PipeWire",
+  "stockControl": true,
+  "appCapture": {
+    "mode": "unsupported",
+    "message": "Screen-capture exclusion is unavailable on this Linux desktop. Notes may appear in recordings and screen shares.",
+    "provider": null
+  },
+  "region": {
+    "x": 400,
+    "y": 300,
+    "width": 360,
+    "height": 220
+  },
+  "differentPixelsFromBackground": {
+    "private": 79200,
+    "shared": 79200,
+    "private-again": 79200,
+    "area": {
+      "private": 79200,
+      "shared": 79200,
+      "private-again": 79200
+    }
+  },
+  "privateExcluded": false,
+  "sharedVisible": true,
+  "privateAgainExcluded": false
+}

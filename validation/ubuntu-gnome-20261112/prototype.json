@@ -1,0 +1,28 @@
+{
+  "backend": "Mutter ScreenCast / PipeWire",
+  "stockControl": false,
+  "appCapture": {
+    "mode": "compositor-omit",
+    "message": "Experimental GNOME/Mutter capture exclusion is active for Mutter/PipeWire screen sharing. Direct X11/KMS capture and screenshots are outside its scope.",
+    "provider": "gnome-mutter"
+  },
+  "region": {
+    "x": 400,
+    "y": 300,
+    "width": 360,
+    "height": 220
+  },
+  "differentPixelsFromBackground": {
+    "private": 0,
+    "shared": 79200,
+    "private-again": 0,
+    "area": {
+      "private": 0,
+      "shared": 79200,
+      "private-again": 0
+    }
+  },
+  "privateExcluded": true,
+  "sharedVisible": true,
+  "privateAgainExcluded": true
+}

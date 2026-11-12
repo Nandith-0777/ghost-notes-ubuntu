@@ -382,3 +382,15 @@ on the platform and capture method. In particular, macOS ScreenCaptureKit can
 bypass Electron content protection; turning protection on is not a guarantee
 that viewers cannot see the note. On Hyprland, install the bundled capture
 integration and updated window rules.
+
+### Experimental Ubuntu GNOME capture integration
+
+The Ubuntu development branch includes a Mutter 46.2 capture prototype for
+Ubuntu 24.04 / GNOME 46 on Wayland. Real PipeWire monitor and region tests verify
+that private notes stay visible locally while capture shows the live content
+behind them. The per-note sharing button includes a note in capture when enabled.
+
+This currently requires a VM-tested compositor build and a desktop-session
+restart. Consumer installation, additional hardware, and live Meet/Zoom testing
+remain pending. See [the integration guide](integrations/gnome-capture/README.md)
+and its rollback instructions. The Omarchy installer remains Hyprland-specific.

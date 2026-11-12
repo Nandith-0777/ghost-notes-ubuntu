@@ -1,3 +1,9 @@
+> **Development history:** The active Ghost Notes codebase and the combined
+> Windows, macOS and Ubuntu releases now live in
+> [Nandith-0777/invisible-notes](https://github.com/Nandith-0777/invisible-notes).
+> This repository preserves the Ubuntu development work and test history.
+> Use the shared repository for current source, installers and contributions.
+
 <p align="center">
   <img src="docs/favicon.svg" alt="Ghost Notes" width="96" height="96" />
 </p>

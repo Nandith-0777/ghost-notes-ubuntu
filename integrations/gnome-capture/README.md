@@ -12,9 +12,8 @@ includes that note in capture; clicking again excludes it. Captured private
 frames matched the note-free live background exactly in the controlled test.
 
 The manager remains visible. Direct X11 texture reads, GPU/KMS recording, and
-ordinary GNOME screenshot paths are outside this integration's scope. Live
-Google Meet/Zoom calls, additional graphics hardware, fractional scaling, and
-multiple monitors still need validation.
+ordinary GNOME screenshot paths are outside this integration's scope. Google Meet invisibility was verified manually in the VM. Zoom, additional
+graphics hardware, fractional scaling, and multiple monitors still need validation.
 
 ## Capture architecture
 

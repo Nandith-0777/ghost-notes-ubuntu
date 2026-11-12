@@ -367,3 +367,18 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+### Show a note in screen sharing
+
+Each note has a monitor-and-arrow button beside the ghost button. Click it to
+show that note in screen sharing; orange means sharing is enabled. Click again
+to request capture protection. This preference survives reopening and restarting.
+Existing and new notes default to private. The ghost button still controls only
+mouse click-through.
+
+Sharing applies to a captured screen containing the note; sharing an unrelated
+application window or browser tab does not include it. Capture protection depends
+on the platform and capture method. In particular, macOS ScreenCaptureKit can
+bypass Electron content protection; turning protection on is not a guarantee
+that viewers cannot see the note. On Hyprland, install the bundled capture
+integration and updated window rules.

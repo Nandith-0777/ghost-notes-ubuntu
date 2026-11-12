@@ -74,7 +74,7 @@ assert.equal(statusBefore.mode, "compositor-omit");
 let unprotected, omitted, baseline, region, regionBaseline;
 const geometry = `${note.at[0]},${note.at[1]} ${note.size[0]}x${note.size[1]}`;
 try {
-  hy("eval", "ghost_notes_overlay_rule:set_enabled(false)");
+  hy("eval", "ghost_notes_privacy_rule:set_enabled(false)");
   await wait();
   assert.equal(
     hy("getprop", `address:${note.address}`, "no_screen_share").trim(),
@@ -82,7 +82,7 @@ try {
   );
   capture("control-warmup");
   unprotected = capture("unprotected-control");
-  hy("eval", "ghost_notes_overlay_rule:set_enabled(true)");
+  hy("eval", "ghost_notes_privacy_rule:set_enabled(true)");
   await wait();
   assert.equal(
     hy("getprop", `address:${note.address}`, "no_screen_share").trim(),
@@ -105,7 +105,7 @@ try {
   baseline = capture("background-only");
   regionBaseline = capture("background-region", geometry);
 } finally {
-  hy("eval", "ghost_notes_overlay_rule:set_enabled(true)");
+  hy("eval", "ghost_notes_privacy_rule:set_enabled(true)");
   move(String(note.workspace.id));
   if (note.pinned)
     hy(

@@ -713,7 +713,16 @@ test("GNOME protection requires a verified companion and reports its actual prov
         "node:child_process": {
           execFileSync(command, args) {
             assert.equal(command, "python3");
-            assert.ok(args[0].endsWith("gnome-capture/status.py"));
+            assert.equal(
+              args[0],
+              path.join(
+                __dirname,
+                "..",
+                "integrations",
+                "gnome-capture",
+                "status.py",
+              ),
+            );
             queries++;
             return JSON.stringify(reply);
           },
